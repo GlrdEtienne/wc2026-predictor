@@ -1,151 +1,112 @@
 """
-collect_player_stats.py
------------------------
-Collecte les stats individuelles saison 2025-26 depuis FBref
-pour tous les joueurs présents dans les squads WC2026.
-
-Sources : FBref via la lib `soccerdata`
-Produit  : data/raw/player_stats/fbref_stats_2025_26.csv
+collect_player_stats.py — v3
+Stat types corrects + gestion MultiIndex colonnes FBref
 """
-
 import pandas as pd
 import soccerdata as sd
 from loguru import logger
 from pathlib import Path
-import sys
-import yaml
-import time
+import sys, time
 
-# ── Config ────────────────────────────────────────────────────────────────────
-with open("config.yaml") as f:
-    CONFIG = yaml.safe_load(f)
-
-SQUADS_FILE = Path("data/raw/squads/wc2026_squads.csv")
 OUTPUT_DIR  = Path("data/raw/player_stats")
 OUTPUT_FILE = OUTPUT_DIR / "fbref_stats_2025_26.csv"
+SEASON      = "2526"
 
-LEAGUES = CONFIG["data"]["leagues_to_scrape"]
-SEASON  = "2526"  # Format soccerdata : "2526" = 2025-26
-
-STAT_TYPES = [
-    "standard",       # goals, assists, xG, minutes
-    "shooting",       # shots, xG, npxG
-    "passing",        # passes, key passes, progressive passes
-    "defense",        # tackles, interceptions, pressures
-    "possession",     # touches, carries, progressive carries
+LEAGUES = [
+    "ENG-Premier League",
+    "ESP-La Liga",
+    "GER-Bundesliga",
+    "ITA-Serie A",
+    "FRA-Ligue 1",
 ]
 
-# ── Logger ────────────────────────────────────────────────────────────────────
+# Stat types valides pour soccerdata FBref
+STAT_TYPES = ["standard", "shooting", "playing_time", "misc"]
+
 logger.remove()
 logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>")
 logger.add("logs/collect_player_stats.log", rotation="1 MB")
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
-def load_wc_player_names(min_caps: int = 0) -> set[str]:
-    """Charge la liste des noms de joueurs WC2026."""
-    if not SQUADS_FILE.exists():
-        logger.warning("Squads file not found — run collect_squads.py first")
-        return set()
-    df = pd.read_csv(SQUADS_FILE)
-    names = set(df["name"].dropna().str.strip())
-    logger.info(f"Loaded {len(names)} player names from WC2026 squads")
-    return names
+def flatten_multiindex(df: pd.DataFrame, stat_type: str) -> pd.DataFrame:
+    """Flatten les colonnes MultiIndex de FBref en colonnes simples."""
+    if isinstance(df.columns, pd.MultiIndex):
+        # Joindre les niveaux : ("Performance", "Gls") → "Gls", ("Per 90", "xG") → "xG"
+        # On garde le dernier niveau non-vide
+        new_cols = []
+        for col in df.columns:
+            if isinstance(col, tuple):
+                # Prendre le dernier niveau non-vide
+                parts = [str(c).strip() for c in col if str(c).strip() and str(c) != "nan"]
+                new_cols.append("_".join(parts) if len(parts) > 1 else parts[-1] if parts else str(col))
+            else:
+                new_cols.append(str(col))
+        df.columns = new_cols
+
+    # Reset index si player/team sont dans l'index
+    if df.index.names and any(n in ["player", "team", "league"] for n in df.index.names):
+        df = df.reset_index()
+
+    # Préfixer les colonnes stats (pas les colonnes d'identité)
+    id_cols = {"player", "team", "league", "nation", "pos", "age", "born"}
+    rename = {}
+    for c in df.columns:
+        if c not in id_cols:
+            rename[c] = f"{stat_type}_{c}"
+    df = df.rename(columns=rename)
+
+    return df
 
 
-def fetch_league_stats(league: str, season: str, stat_type: str) -> pd.DataFrame | None:
-    """Fetch une stat table FBref pour une ligue donnée."""
-    try:
-        fbref = sd.FBref(leagues=[league], seasons=[season])
-        df = fbref.read_player_season_stats(stat_type=stat_type)
-        df["league"] = league
-        df["stat_type"] = stat_type
-        logger.info(f"  ✓ {league} | {stat_type} | {len(df)} rows")
-        return df
-    except Exception as e:
-        logger.warning(f"  ✗ {league} | {stat_type} | Error: {e}")
-        return None
-
-
-def merge_stat_types(dfs: list[pd.DataFrame]) -> pd.DataFrame:
-    """Merge toutes les stat tables sur player + team + league."""
-    if not dfs:
-        return pd.DataFrame()
-
-    # Colonnes clés pour le merge
-    key_cols = ["player", "team", "league", "nation", "pos", "age", "born", "90s"]
-
-    base = None
-    for df in dfs:
-        stat_type = df["stat_type"].iloc[0]
-        # Drop colonnes redondantes sauf les keys
-        stat_cols = [c for c in df.columns if c not in key_cols + ["stat_type"]]
-        # Préfixer les colonnes pour éviter les conflits
-        rename = {c: f"{stat_type}_{c}" for c in stat_cols}
-        df_renamed = df[key_cols + stat_cols].rename(columns=rename)
-
-        if base is None:
-            base = df_renamed
-        else:
-            base = base.merge(df_renamed, on=key_cols, how="outer", suffixes=("", f"_{stat_type}"))
-
-    return base
-
-
-# ── Main ──────────────────────────────────────────────────────────────────────
 def main():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     Path("logs").mkdir(exist_ok=True)
 
-    wc_players = load_wc_player_names()
+    # Charger noms joueurs WC2026
+    squads_file = Path("data/raw/squads/wc2026_squads.csv")
+    wc_players = set()
+    if squads_file.exists():
+        wc_players = set(pd.read_csv(squads_file)["name"].dropna())
+        logger.info(f"Loaded {len(wc_players)} WC2026 player names")
 
-    all_stats: list[pd.DataFrame] = []
+    fbref = sd.FBref(leagues=LEAGUES, seasons=[SEASON])
 
-    for league in LEAGUES:
-        logger.info(f"\n📊 Fetching {league}...")
-        league_dfs = []
+    all_dfs = []
+    for stat_type in STAT_TYPES:
+        logger.info(f"Fetching {stat_type}...")
+        try:
+            df = fbref.read_player_season_stats(stat_type=stat_type)
+            df = flatten_multiindex(df, stat_type)
+            logger.info(f"  ✓ {stat_type}: {len(df)} rows, {len(df.columns)} cols")
+            all_dfs.append(df)
+            time.sleep(3)
+        except Exception as e:
+            logger.warning(f"  ✗ {stat_type}: {e}")
 
-        for stat_type in STAT_TYPES:
-            df = fetch_league_stats(league, SEASON, stat_type)
-            if df is not None:
-                league_dfs.append(df)
-            time.sleep(2)  # Rate limiting FBref — sois poli !
-
-        if league_dfs:
-            merged = merge_stat_types(league_dfs)
-            all_stats.append(merged)
-
-    if not all_stats:
-        logger.error("No data collected. Exiting.")
+    if not all_dfs:
+        logger.error("No data collected!")
         return
 
-    # Concat toutes les ligues
-    df_all = pd.concat(all_stats, ignore_index=True)
-    logger.info(f"\nTotal rows before dedup: {len(df_all)}")
+    # Merge sur player + team + league
+    id_cols = ["player", "team", "league"]
+    base = all_dfs[0]
+    for df in all_dfs[1:]:
+        # Garder seulement id_cols + nouvelles colonnes stats
+        merge_cols = id_cols + [c for c in df.columns if c not in base.columns]
+        base = base.merge(df[merge_cols], on=id_cols, how="outer")
 
-    # Déduplication : garder la saison avec le plus de minutes par joueur
-    if "standard_MP" in df_all.columns:
-        df_all = (
-            df_all
-            .sort_values("standard_MP", ascending=False)
-            .drop_duplicates(subset=["player", "team"], keep="first")
-        )
+    logger.info(f"Final dataset: {len(base)} rows, {len(base.columns)} columns")
 
-    # Filtrer sur les joueurs WC2026 (optionnel — garde tous si wc_players vide)
+    base.to_csv(OUTPUT_FILE, index=False, encoding="utf-8")
+    logger.success(f"Saved → {OUTPUT_FILE}")
+
     if wc_players:
-        df_wc = df_all[df_all["player"].isin(wc_players)].copy()
-        logger.info(f"WC2026 players found in FBref: {len(df_wc)} / {len(wc_players)}")
-    else:
-        df_wc = df_all.copy()
-        logger.warning("No WC player filter applied — keeping all players")
+        found = base[base["player"].isin(wc_players)]
+        logger.info(f"WC2026 players found in Big 5: {len(found)} / {len(wc_players)}")
+        logger.info("(Remaining play in other leagues: MLS, Saudi Pro, etc.)")
 
-    df_wc.to_csv(OUTPUT_FILE, index=False, encoding="utf-8")
-    logger.success(f"Saved {len(df_wc)} player records → {OUTPUT_FILE}")
-
-    print("\n📊 Aperçu des colonnes disponibles:")
-    print([c for c in df_wc.columns[:20]])
-    print(f"\n✅ {len(df_wc)} joueurs WC2026 avec stats FBref 2025-26")
-
+    print(f"\n✅ {len(base)} joueurs | {len(base.columns)} features")
+    print(f"   Colonnes: {list(base.columns[:15])}")
 
 if __name__ == "__main__":
     main()
