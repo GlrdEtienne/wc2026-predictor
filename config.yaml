@@ -1,0 +1,63 @@
+tournament:
+  name: "FIFA World Cup 2026"
+  start_date: "2026-06-11"
+  final_date: "2026-07-19"
+  n_teams: 48
+  n_groups: 12
+  teams_per_group: 4
+
+  groups:
+    A: ["Mexico", "South Africa", "South Korea", "Czechia"]
+    B: ["USA", "Paraguay", "Qatar", "Switzerland"]
+    C: ["Canada", "Bosnia and Herzegovina", "?", "?"]  # à compléter
+    D: ["Brazil", "Morocco", "Haiti", "Scotland"]
+    E: ["Germany", "Ecuador", "Ivory Coast", "Curacao"]
+    F: ["Netherlands", "Japan", "Tunisia", "?"]  # playoff winner
+    G: ["Spain", "Cape Verde", "?", "?"]
+    H: ["Belgium", "Egypt", "?", "?"]
+    I: ["Saudi Arabia", "Uruguay", "Iran", "New Zealand"]
+    J: ["France", "Senegal", "?", "?"]
+    K: ["Argentina", "?", "?", "?"]
+    L: ["Portugal", "?", "?", "?"]
+
+data:
+  fbref_season: "2025-2026"
+  leagues_to_scrape:
+    - "Premier League"
+    - "La Liga"
+    - "Bundesliga"
+    - "Serie A"
+    - "Ligue 1"
+    - "Eredivisie"
+    - "Primeira Liga"
+    - "MLS"
+    - "Saudi Pro League"
+  min_minutes_played: 500  # seuil pour inclure un joueur
+
+model:
+  random_seed: 42
+  n_simulations: 10000
+  test_size: 0.2
+  features:
+    team_level:
+      - "avg_xg_per90"
+      - "avg_xga_per90"
+      - "avg_goals_per90"
+      - "avg_goals_conceded_per90"
+      - "avg_pass_completion"
+      - "avg_progressive_passes"
+      - "avg_pressures"
+      - "squad_avg_rating"
+      - "squad_avg_age"
+      - "squad_market_value"
+    match_level:
+      - "fifa_ranking_diff"
+      - "h2h_wins_last5"
+      - "days_since_last_match"
+      - "is_home"  # toujours 0 en WC sauf co-hôtes
+
+paths:
+  raw_data: "data/raw"
+  processed_data: "data/processed"
+  models: "models"
+  logs: "logs"
