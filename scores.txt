@@ -1,0 +1,6 @@
+# WC2026 Scores — format: YYYY-MM-DD | Groupe | Home | Away | HG-AG
+# Exemple:
+# 2026-06-11 | A | Mexico | South Africa | 2-0
+
+2026-06-11 | A | Mexico | South Africa | 2-0
+2026-06-11 | A | South Korea | Czech Republic | 2-1

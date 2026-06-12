@@ -54,8 +54,8 @@ def load_data() -> pd.DataFrame:
     # Filtrer : matchs avec toutes les features dispo
     df = df.dropna(subset=["home_goals", "away_goals", "home_fifa_rank", "away_fifa_rank"])
 
-    # Garder seulement les matchs depuis 2010 (ranking FIFA plus fiable)
-    df = df[df["date"] >= "2010-01-01"].copy()
+    # Garder seulement les matchs depuis 2016 (ranking FIFA plus fiable)
+    df = df[df["date"] >= "2016-01-01"].copy()
 
     # Encoder le tournoi
     tournament_weight = {

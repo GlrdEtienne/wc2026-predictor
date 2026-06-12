@@ -1,13 +1,7 @@
 """
-simulate.py
------------
-Monte Carlo simulation de la WC2026.
-10 000 simulations → probabilités par équipe pour chaque stade.
-
-Produit :
-  - data/processed/simulation_results.csv
-  - data/processed/group_stage_probs.csv
-  - data/processed/knockout_probs.csv
+simulate.py — v3
+Phase éliminatoire vectorisée : tous les lambdas pré-calculés.
+Objectif : < 30 secondes.
 """
 
 import pandas as pd
@@ -15,23 +9,21 @@ import numpy as np
 import json
 from pathlib import Path
 from loguru import logger
-from scipy.stats import poisson
-import sys
+import sys, time
 import warnings
 warnings.filterwarnings("ignore")
-
 import xgboost as xgb
+from itertools import combinations, permutations
 
 PROC   = Path("data/processed")
 MODELS = Path("models")
 
 logger.remove()
-logger.add(sys.stdout, format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>")
+logger.add(sys.stdout, format="{time:HH:mm:ss} | {message}")
 
 N_SIMULATIONS = 10_000
 RANDOM_SEED   = 42
 
-# WC2026 groupes
 WC2026_GROUPS = {
     "A": ["Mexico", "South Africa", "South Korea", "Czech Republic"],
     "B": ["United States", "Paraguay", "Qatar", "Switzerland"],
@@ -47,299 +39,249 @@ WC2026_GROUPS = {
     "L": ["Portugal", "Croatia", "Turkey", "England"],
 }
 
-# Résultats déjà joués (à updater au fur et à mesure)
 PLAYED_MATCHES = [
-    {"group": "A", "home": "Mexico",      "away": "South Africa", "hg": 2, "ag": 0},
-    {"group": "A", "home": "South Korea", "away": "Czech Republic", "hg": 2, "ag": 1},
+    {"group": "A", "home": "Mexico", "away": "South Africa", "hg": 2, "ag": 0},  # 2026-06-11
+    {"group": "A", "home": "South Korea", "away": "Czech Republic", "hg": 2, "ag": 1},  # 2026-06-11
 ]
 
 
 def load_models_and_features():
-    home_model = xgb.XGBRegressor()
-    home_model.load_model(str(MODELS / "home_goals_model.json"))
-
-    away_model = xgb.XGBRegressor()
-    away_model.load_model(str(MODELS / "away_goals_model.json"))
-
+    hm = xgb.XGBRegressor(); hm.load_model(str(MODELS / "home_goals_model.json"))
+    am = xgb.XGBRegressor(); am.load_model(str(MODELS / "away_goals_model.json"))
     with open(MODELS / "feature_columns.json") as f:
         features = json.load(f)
-
-    return home_model, away_model, features
+    return hm, am, features
 
 
 def load_team_data():
-    team_feat = pd.read_csv(PROC / "team_features.csv")
-    rank_map  = team_feat.set_index("team")["fifa_rank"].to_dict()
-    pts_map   = team_feat.set_index("team")["fifa_points"].to_dict()
-    form_map  = team_feat.set_index("team").get("avg_form", pd.Series(dtype=float)).to_dict()
-    return rank_map, pts_map, form_map, team_feat
+    tf = pd.read_csv(PROC / "team_features.csv")
+    rank_map = tf.set_index("team")["fifa_rank"].to_dict()
+    pts_map  = tf.set_index("team")["fifa_points"].to_dict()
+    return rank_map, pts_map
 
 
-def predict_goals(home_team, away_team, rank_map, pts_map, form_map,
-                  home_model, away_model, features, is_wc=1):
-    """Prédit les buts moyens attendus pour un match."""
-
-    hr = rank_map.get(home_team, 50)
-    ar = rank_map.get(away_team, 50)
-    hp = pts_map.get(home_team, 1200)
-    ap = pts_map.get(away_team, 1200)
-    hf = form_map.get(home_team, 1.5)
-    af = form_map.get(away_team, 1.5)
-
-    row = {
-        "home_fifa_rank":   hr,
-        "away_fifa_rank":   ar,
-        "fifa_rank_diff":   hr - ar,
-        "fifa_points_diff": hp - ap,
-        "home_form_pts":    hf,
-        "away_form_pts":    af,
-        "home_h2h_wins":    0,
-        "away_h2h_wins":    0,
-        "is_wc":            is_wc,
-    }
-
-    X = pd.DataFrame([row])[features]
-    pred_home = float(home_model.predict(X)[0])
-    pred_away = float(away_model.predict(X)[0])
-
-    # Clamp valeurs raisonnables
-    pred_home = max(0.2, min(pred_home, 6.0))
-    pred_away = max(0.2, min(pred_away, 6.0))
-
-    return pred_home, pred_away
+def predict_lambdas_batch(matchups, rank_map, pts_map, hm, am, features):
+    """Prédit les lambdas pour une liste de matchups en une passe."""
+    rows = []
+    for home, away in matchups:
+        hr = rank_map.get(home, 50); ar = rank_map.get(away, 50)
+        hp = pts_map.get(home, 1200); ap = pts_map.get(away, 1200)
+        rows.append({
+            "home_fifa_rank": hr, "away_fifa_rank": ar,
+            "fifa_rank_diff": hr - ar, "fifa_points_diff": hp - ap,
+            "home_form_pts": 1.5, "away_form_pts": 1.5,
+            "home_h2h_wins": 0, "away_h2h_wins": 0, "is_wc": 1,
+        })
+    X = pd.DataFrame(rows)[features]
+    lh = np.clip(hm.predict(X).astype(float), 0.2, 6.0)
+    la = np.clip(am.predict(X).astype(float), 0.2, 6.0)
+    return lh, la
 
 
-def simulate_match(lambda_home, lambda_away, rng):
-    """Simule un match via distribution de Poisson."""
-    hg = rng.poisson(lambda_home)
-    ag = rng.poisson(lambda_away)
-    return hg, ag
+def simulate_group_stage(all_teams, rank_map, pts_map, hm, am, features, rng):
+    """Simule les groupes, retourne (N, 32) qualifiés + (N, 12) 3èmes."""
+    team_to_idx = {t: i for i, t in enumerate(all_teams)}
+
+    # Pré-calculer tous les matchups de groupes
+    group_matchups = [(h, a) for g in WC2026_GROUPS.values() for h, a in combinations(g, 2)]
+    lh_grp, la_grp = predict_lambdas_batch(group_matchups, rank_map, pts_map, hm, am, features)
+    matchup_to_idx = {(h, a): i for i, (h, a) in enumerate(group_matchups)}
+    played_dict    = {(m["home"], m["away"]): (m["hg"], m["ag"]) for m in PLAYED_MATCHES}
+
+    group_winners  = np.zeros((N_SIMULATIONS, 12), dtype=np.int32)
+    group_runners  = np.zeros((N_SIMULATIONS, 12), dtype=np.int32)
+    thirds_global  = np.zeros((N_SIMULATIONS, 12), dtype=np.int32)
+    thirds_pts     = np.zeros((N_SIMULATIONS, 12), dtype=np.int32)
+    thirds_gd      = np.zeros((N_SIMULATIONS, 12), dtype=np.int32)
+    thirds_gf      = np.zeros((N_SIMULATIONS, 12), dtype=np.int32)
+
+    for gi, (group, teams) in enumerate(WC2026_GROUPS.items()):
+        n_t = len(teams)
+        t_idx = {t: i for i, t in enumerate(teams)}
+        standings = np.zeros((N_SIMULATIONS, n_t, 3), dtype=np.int32)
+
+        for home, away in combinations(teams, 2):
+            hi, ai = t_idx[home], t_idx[away]
+            if (home, away) in played_dict:
+                hg_f, ag_f = played_dict[(home, away)]
+                hg = np.full(N_SIMULATIONS, hg_f, dtype=np.int32)
+                ag = np.full(N_SIMULATIONS, ag_f, dtype=np.int32)
+            else:
+                idx = matchup_to_idx[(home, away)]
+                hg = rng.poisson(lh_grp[idx], size=N_SIMULATIONS).astype(np.int32)
+                ag = rng.poisson(la_grp[idx], size=N_SIMULATIONS).astype(np.int32)
+
+            hw = hg > ag; aw = ag > hg; dr = hg == ag
+            standings[:, hi, 0] += np.where(hw, 3, np.where(dr, 1, 0))
+            standings[:, ai, 0] += np.where(aw, 3, np.where(dr, 1, 0))
+            standings[:, hi, 1] += (hg - ag); standings[:, ai, 1] += (ag - hg)
+            standings[:, hi, 2] += hg;        standings[:, ai, 2] += ag
+
+        rand_tb = rng.random((N_SIMULATIONS, n_t))
+        score   = standings[:,:,0]*1e6 + standings[:,:,1]*1e3 + standings[:,:,2] + rand_tb*0.1
+        ranked  = np.argsort(-score, axis=1)
+
+        group_winners[:, gi] = [team_to_idx[teams[ranked[s, 0]]] for s in range(N_SIMULATIONS)]
+        group_runners[:, gi] = [team_to_idx[teams[ranked[s, 1]]] for s in range(N_SIMULATIONS)]
+        t3_local             = ranked[:, 2]
+        thirds_global[:, gi] = [team_to_idx[teams[t3_local[s]]] for s in range(N_SIMULATIONS)]
+        thirds_pts[:, gi]    = standings[np.arange(N_SIMULATIONS), t3_local, 0]
+        thirds_gd[:, gi]     = standings[np.arange(N_SIMULATIONS), t3_local, 1]
+        thirds_gf[:, gi]     = standings[np.arange(N_SIMULATIONS), t3_local, 2]
+
+    # Top 8 troisièmes
+    rand_tb3  = rng.random((N_SIMULATIONS, 12))
+    t3_score  = thirds_pts*1e6 + thirds_gd*1e3 + thirds_gf + rand_tb3*0.1
+    best8_loc = np.argsort(-t3_score, axis=1)[:, :8]
+    best8_gl  = thirds_global[np.arange(N_SIMULATIONS)[:, None], best8_loc]
+
+    # 32 qualifiés : 12 winners + 12 runners + 8 best thirds
+    qualified = np.concatenate([group_winners, group_runners, best8_gl], axis=1)
+    return qualified
 
 
-def simulate_group(teams, rank_map, pts_map, form_map,
-                   home_model, away_model, features,
-                   played: list, rng) -> pd.DataFrame:
-    """Simule une phase de groupes et retourne le classement."""
-    from itertools import combinations
+def simulate_knockout_stage(qualified, all_teams, rank_map, pts_map, hm, am, features, rng):
+    """
+    Phase éliminatoire entièrement vectorisée.
+    Clé : pré-calculer les lambdas pour TOUTES les paires possibles (48*47=2256).
+    """
+    n_teams = len(all_teams)
+    team_to_idx = {t: i for i, t in enumerate(all_teams)}
 
-    # Init tableau
-    standings = {t: {"pts": 0, "gf": 0, "ga": 0, "gd": 0, "w": 0, "d": 0, "l": 0} for t in teams}
+    logger.info("Pre-computing all knockout lambdas (48x47 pairs)...")
 
-    # Résultats déjà joués
-    played_set = {(m["home"], m["away"]): (m["hg"], m["ag"]) for m in played}
+    # Tous les matchups ordonnés possibles entre 48 équipes
+    all_ko_matchups = [(h, a) for h in all_teams for a in all_teams if h != a]
+    lh_ko, la_ko = predict_lambdas_batch(all_ko_matchups, rank_map, pts_map, hm, am, features)
 
-    for home, away in combinations(teams, 2):
-        if (home, away) in played_set:
-            hg, ag = played_set[(home, away)]
-        else:
-            lh, la = predict_goals(home, away, rank_map, pts_map, form_map,
-                                   home_model, away_model, features)
-            hg, ag = simulate_match(lh, la, rng)
+    # Index rapide : (i, j) -> lambda
+    lh_matrix = np.zeros((n_teams, n_teams))
+    la_matrix = np.zeros((n_teams, n_teams))
+    for k, (h, a) in enumerate(all_ko_matchups):
+        hi, ai = team_to_idx[h], team_to_idx[a]
+        lh_matrix[hi, ai] = lh_ko[k]
+        la_matrix[hi, ai] = la_ko[k]
 
-        # Update standings
-        standings[home]["gf"] += hg
-        standings[home]["ga"] += ag
-        standings[away]["gf"] += ag
-        standings[away]["ga"] += hg
-        standings[home]["gd"] = standings[home]["gf"] - standings[home]["ga"]
-        standings[away]["gd"] = standings[away]["gf"] - standings[away]["ga"]
+    logger.info(f"Knockout lambdas ready ({len(all_ko_matchups)} pairs)")
 
-        if hg > ag:
-            standings[home]["pts"] += 3
-            standings[home]["w"]   += 1
-            standings[away]["l"]   += 1
-        elif ag > hg:
-            standings[away]["pts"] += 3
-            standings[away]["w"]   += 1
-            standings[home]["l"]   += 1
-        else:
-            standings[home]["pts"] += 1
-            standings[away]["pts"] += 1
-            standings[home]["d"]   += 1
-            standings[away]["d"]   += 1
+    rank_arr = np.array([rank_map.get(t, 50) for t in all_teams])
 
-    # Classement : pts, gd, gf, puis aléatoire pour égalité parfaite
-    df = pd.DataFrame(standings).T.reset_index().rename(columns={"index": "team"})
-    df["rand"] = rng.random(len(df))
-    df = df.sort_values(["pts", "gd", "gf", "rand"], ascending=False).reset_index(drop=True)
-    df["rank"] = range(1, len(df) + 1)
-    return df
+    r32_count   = np.zeros(n_teams, dtype=np.int32)
+    qf_count    = np.zeros(n_teams, dtype=np.int32)
+    sf_count    = np.zeros(n_teams, dtype=np.int32)
+    final_count = np.zeros(n_teams, dtype=np.int32)
+    win_count   = np.zeros(n_teams, dtype=np.int32)
+
+    current = qualified.copy()  # (N, 32)
+
+    for round_name, n_in, counter in [
+        ("R32",   32, r32_count),
+        ("QF",    16, qf_count),
+        ("SF",     8, sf_count),
+        ("Final",  4, final_count),
+    ]:
+        n_matches = n_in // 2
+        shuffled  = rng.permuted(current[:, :n_in], axis=1)
+        next_round = np.zeros((N_SIMULATIONS, n_matches), dtype=np.int32)
+
+        for m in range(n_matches):
+            ta = shuffled[:, m*2]    # (N,)
+            tb = shuffled[:, m*2+1]  # (N,)
+
+            # Compter participants
+            np.add.at(counter, ta, 1)
+            np.add.at(counter, tb, 1)
+
+            # Lambdas vectorisés via matrix lookup
+            lh_vec = lh_matrix[ta, tb]  # (N,)
+            la_vec = la_matrix[ta, tb]  # (N,)
+
+            # Simuler goals — vectorisé
+            # Poisson vectorisé : générer pour chaque sim
+            hg = np.array([rng.poisson(l) for l in lh_vec], dtype=np.int32)
+            ag = np.array([rng.poisson(l) for l in la_vec], dtype=np.int32)
+
+            winners = np.where(hg > ag, ta, np.where(ag > hg, tb, -1))
+
+            # Penalties pour les nuls
+            draw_mask = winners == -1
+            if draw_mask.any():
+                ra = rank_arr[ta[draw_mask]]
+                rb = rank_arr[tb[draw_mask]]
+                prob_a = np.clip(0.5 + (rb - ra) * 0.003, 0.3, 0.7)
+                pen_rand = rng.random(draw_mask.sum())
+                pen_winners = np.where(pen_rand < prob_a, ta[draw_mask], tb[draw_mask])
+                winners[draw_mask] = pen_winners
+
+            next_round[:, m] = winners
+
+        current = next_round
+        logger.info(f"  {round_name} done")
+
+    win_count += np.bincount(current[:, 0], minlength=n_teams)
+    return r32_count, qf_count, sf_count, final_count, win_count
 
 
-def simulate_knockout_match(home_team, away_team, rank_map, pts_map, form_map,
-                             home_model, away_model, features, rng) -> str:
-    """Simule un match éliminatoire (avec prolongations/penalties si nul)."""
-    lh, la = predict_goals(home_team, away_team, rank_map, pts_map, form_map,
-                           home_model, away_model, features)
-    hg, ag = simulate_match(lh, la, rng)
-
-    if hg != ag:
-        return home_team if hg > ag else away_team
-
-    # Prolongations — légèrement favorise le mieux classé
-    hr = rank_map.get(home_team, 50)
-    ar = rank_map.get(away_team, 50)
-    # Probabilité de gagner les penalties basée sur le ranking
-    home_pen_prob = 0.5 + (ar - hr) * 0.003
-    home_pen_prob = max(0.3, min(0.7, home_pen_prob))
-
-    return home_team if rng.random() < home_pen_prob else away_team
-
-
-def run_simulations(home_model, away_model, features, rank_map, pts_map, form_map):
+def run_simulations(hm, am, features, rank_map, pts_map):
     rng = np.random.default_rng(RANDOM_SEED)
+    all_teams = [t for g in WC2026_GROUPS.values() for t in g]
+    team_to_idx = {t: i for i, t in enumerate(all_teams)}
+    n_teams = len(all_teams)
 
-    # Compteurs de résultats
-    group_qualif  = {t: 0 for group in WC2026_GROUPS.values() for t in group}
-    r32_count     = {t: 0 for group in WC2026_GROUPS.values() for t in group}
-    qf_count      = {t: 0 for group in WC2026_GROUPS.values() for t in group}
-    sf_count      = {t: 0 for group in WC2026_GROUPS.values() for t in group}
-    final_count   = {t: 0 for group in WC2026_GROUPS.values() for t in group}
-    winner_count  = {t: 0 for group in WC2026_GROUPS.values() for t in group}
+    qualify_count = np.zeros(n_teams, dtype=np.int32)
 
-    logger.info(f"Running {N_SIMULATIONS:,} simulations...")
+    logger.info("Simulating group stage...")
+    qualified = simulate_group_stage(all_teams, rank_map, pts_map, hm, am, features, rng)
 
-    for sim in range(N_SIMULATIONS):
-        if sim % 1000 == 0:
-            logger.info(f"  Simulation {sim:,}/{N_SIMULATIONS:,}...")
+    for i in range(32):
+        qualify_count += np.bincount(qualified[:, i], minlength=n_teams)
 
-        # ── Phase de groupes ──────────────────────────────────────────────────
-        group_winners  = {}
-        group_runners  = {}
-        third_places   = []  # (team, pts, gd, gf) pour sélectionner les 8 meilleurs 3èmes
+    logger.info("Simulating knockout stage...")
+    r32_c, qf_c, sf_c, fin_c, win_c = simulate_knockout_stage(
+        qualified, all_teams, rank_map, pts_map, hm, am, features, rng
+    )
 
-        for group_name, teams in WC2026_GROUPS.items():
-            played = [m for m in PLAYED_MATCHES if m["group"] == group_name]
-            standings = simulate_group(teams, rank_map, pts_map, form_map,
-                                       home_model, away_model, features, played, rng)
-
-            winner = standings.iloc[0]["team"]
-            runner = standings.iloc[1]["team"]
-            third  = standings.iloc[2]
-
-            group_winners[group_name] = winner
-            group_runners[group_name] = runner
-            third_places.append({
-                "team": third["team"],
-                "group": group_name,
-                "pts": third["pts"],
-                "gd": third["gd"],
-                "gf": third["gf"],
-            })
-
-            group_qualif[winner] += 1
-            group_qualif[runner] += 1
-
-        # 8 meilleurs 3èmes
-        third_df = pd.DataFrame(third_places).sort_values(
-            ["pts", "gd", "gf"], ascending=False
-        ).head(8)
-        best_thirds = list(third_df["team"])
-        for t in best_thirds:
-            group_qualif[t] += 1
-
-        # ── Round of 32 ───────────────────────────────────────────────────────
-        # Bracket WC2026 : 1er groupe vs 2ème autre groupe + meilleurs 3èmes
-        # Simplifié : on tire au sort les matchups R32
-        qualifiers = list(group_winners.values()) + list(group_runners.values()) + best_thirds
-        rng.shuffle(qualifiers)
-
-        r32_winners = []
-        for i in range(0, len(qualifiers), 2):
-            if i + 1 < len(qualifiers):
-                w = simulate_knockout_match(
-                    qualifiers[i], qualifiers[i+1],
-                    rank_map, pts_map, form_map,
-                    home_model, away_model, features, rng
-                )
-                r32_winners.append(w)
-                r32_count[qualifiers[i]] += 1
-                r32_count[qualifiers[i+1]] += 1
-
-        # ── Quarts de finale ──────────────────────────────────────────────────
-        rng.shuffle(r32_winners)
-        qf_winners = []
-        for i in range(0, len(r32_winners), 2):
-            if i + 1 < len(r32_winners):
-                w = simulate_knockout_match(
-                    r32_winners[i], r32_winners[i+1],
-                    rank_map, pts_map, form_map,
-                    home_model, away_model, features, rng
-                )
-                qf_winners.append(w)
-                qf_count[r32_winners[i]] += 1
-                qf_count[r32_winners[i+1]] += 1
-
-        # ── Demi-finales ──────────────────────────────────────────────────────
-        sf_winners = []
-        for i in range(0, len(qf_winners), 2):
-            if i + 1 < len(qf_winners):
-                w = simulate_knockout_match(
-                    qf_winners[i], qf_winners[i+1],
-                    rank_map, pts_map, form_map,
-                    home_model, away_model, features, rng
-                )
-                sf_winners.append(w)
-                sf_count[qf_winners[i]] += 1
-                sf_count[qf_winners[i+1]] += 1
-
-        # ── Finale ────────────────────────────────────────────────────────────
-        if len(sf_winners) >= 2:
-            finalist_a = sf_winners[0]
-            finalist_b = sf_winners[1]
-            final_count[finalist_a] += 1
-            final_count[finalist_b] += 1
-            champion = simulate_knockout_match(
-                finalist_a, finalist_b,
-                rank_map, pts_map, form_map,
-                home_model, away_model, features, rng
-            )
-            winner_count[champion] += 1
-
-    # ── Résultats ─────────────────────────────────────────────────────────────
-    all_teams = [t for group in WC2026_GROUPS.values() for t in group]
-    results = []
+    records = []
     for team in all_teams:
-        group = next(g for g, teams in WC2026_GROUPS.items() if team in teams)
-        results.append({
-            "team":             team,
-            "group":            group,
-            "prob_qualify":     round(group_qualif[team]  / N_SIMULATIONS, 4),
-            "prob_r32":         round(r32_count[team]     / N_SIMULATIONS, 4),
-            "prob_qf":          round(qf_count[team]      / N_SIMULATIONS, 4),
-            "prob_sf":          round(sf_count[team]      / N_SIMULATIONS, 4),
-            "prob_final":       round(final_count[team]   / N_SIMULATIONS, 4),
-            "prob_winner":      round(winner_count[team]  / N_SIMULATIONS, 4),
+        i = team_to_idx[team]
+        group = next(g for g, ts in WC2026_GROUPS.items() if team in ts)
+        records.append({
+            "team":         team, "group": group,
+            "prob_qualify": round(qualify_count[i] / N_SIMULATIONS, 4),
+            "prob_r32":     round(r32_c[i]         / N_SIMULATIONS, 4),
+            "prob_qf":      round(qf_c[i]           / N_SIMULATIONS, 4),
+            "prob_sf":      round(sf_c[i]           / N_SIMULATIONS, 4),
+            "prob_final":   round(fin_c[i]           / N_SIMULATIONS, 4),
+            "prob_winner":  round(win_c[i]           / N_SIMULATIONS, 4),
         })
 
-    return pd.DataFrame(results).sort_values("prob_winner", ascending=False)
+    return pd.DataFrame(records).sort_values("prob_winner", ascending=False)
 
 
 def main():
-    logger.info("=== Monte Carlo Simulation WC2026 ===")
+    logger.info("=== Monte Carlo Simulation WC2026 (v3 vectorized) ===")
+    t0 = time.time()
 
-    home_model, away_model, features = load_models_and_features()
-    rank_map, pts_map, form_map, team_feat = load_team_data()
+    hm, am, features = load_models_and_features()
+    rank_map, pts_map = load_team_data()
 
-    df_results = run_simulations(home_model, away_model, features, rank_map, pts_map, form_map)
+    df = run_simulations(hm, am, features, rank_map, pts_map)
+    df.to_csv(PROC / "simulation_results.csv", index=False)
 
-    # Sauvegarder
-    df_results.to_csv(PROC / "simulation_results.csv", index=False)
+    elapsed = time.time() - t0
+    logger.info(f"Total time: {elapsed:.1f}s")
     logger.success(f"Saved simulation_results.csv")
 
-    # Affichage
-    print(f"\n🏆 WC2026 WIN PROBABILITY (top 20) — {N_SIMULATIONS:,} simulations\n")
-    print(f"{'Team':<25} {'Win%':>6} {'Final%':>7} {'SF%':>6} {'QF%':>6} {'R32%':>6} {'Group%':>7}")
-    print("-" * 70)
-    for _, row in df_results.head(20).iterrows():
+    print(f"\nWC2026 WIN PROBABILITY — {N_SIMULATIONS:,} simulations ({elapsed:.1f}s)\n")
+    print(f"{'Team':<25} {'Win%':>6} {'Final%':>7} {'SF%':>6} {'QF%':>6}")
+    print("-" * 60)
+    for _, row in df.head(15).iterrows():
         print(
             f"{row['team']:<25} "
             f"{row['prob_winner']*100:>5.1f}% "
             f"{row['prob_final']*100:>6.1f}% "
             f"{row['prob_sf']*100:>5.1f}% "
-            f"{row['prob_qf']*100:>5.1f}% "
-            f"{row['prob_r32']*100:>5.1f}% "
-            f"{row['prob_qualify']*100:>6.1f}%"
+            f"{row['prob_qf']*100:>5.1f}%"
         )
 
 
