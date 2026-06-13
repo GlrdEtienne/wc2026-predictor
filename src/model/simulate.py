@@ -42,6 +42,8 @@ WC2026_GROUPS = {
 PLAYED_MATCHES = [
     {"group": "A", "home": "Mexico", "away": "South Africa", "hg": 2, "ag": 0},  # 2026-06-11
     {"group": "A", "home": "South Korea", "away": "Czech Republic", "hg": 2, "ag": 1},  # 2026-06-11
+    {"group": "B", "home": "Canada", "away": "Bosnia and Herzegovina", "hg": 1, "ag": 1},  # 2026-06-12
+    {"group": "D", "home": "USA", "away": "Paraguay", "hg": 4, "ag": 1},  # 2026-06-13
 ]
 
 
