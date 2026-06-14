@@ -44,6 +44,10 @@ PLAYED_MATCHES = [
     {"group": "A", "home": "South Korea", "away": "Czech Republic", "hg": 2, "ag": 1},  # 2026-06-11
     {"group": "B", "home": "Canada", "away": "Bosnia and Herzegovina", "hg": 1, "ag": 1},  # 2026-06-12
     {"group": "D", "home": "USA", "away": "Paraguay", "hg": 4, "ag": 1},  # 2026-06-13
+    {"group": "B", "home": "Qatar", "away": "Switzerland", "hg": 1, "ag": 1},  # 2026-06-13
+    {"group": "C", "home": "Brasil", "away": "Morocco", "hg": 1, "ag": 1},  # 2026-06-14
+    {"group": "C", "home": "Haiti", "away": "Scotland", "hg": 0, "ag": 1},  # 2026-06-14
+    {"group": "D", "home": "Australia", "away": "Turkey", "hg": 2, "ag": 0},  # 2026-06-14
 ]
 
 
