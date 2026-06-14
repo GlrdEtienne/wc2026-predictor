@@ -16,7 +16,6 @@ build/
 .env.*
 
 # Data (raw data not versioned, processed ok)
-data/raw/
 !data/raw/.gitkeep
 
 # Notebooks checkpoints
@@ -34,7 +33,6 @@ Thumbs.db
 # Models (trop lourds pour git)
 models/*.pkl
 models/*.joblib
-models/*.json
 
 # Logs
 logs/

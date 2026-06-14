@@ -16,16 +16,26 @@ import re
 import sys
 import subprocess
 from pathlib import Path
-from loguru import logger
+from datetime import datetime
 
 SCORES_FILE = Path("scores.txt")
 OUTPUT_FILE = Path("data/raw/historical/wc2026_results_live.csv")
 SIMULATE_SCRIPT = Path("src/model/simulate.py")
 
-import io
-logger.remove()
-logger.add(io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8"), 
-           format="{time:HH:mm:ss} | {message}")
+
+def logger_msg(level, msg):
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"{ts} | {level} | {msg}", flush=True)
+
+class logger:
+    @staticmethod
+    def info(m):    logger_msg("INFO   ", m)
+    @staticmethod
+    def success(m): logger_msg("SUCCESS", m)
+    @staticmethod
+    def warning(m): logger_msg("WARNING", m)
+    @staticmethod
+    def error(m):   logger_msg("ERROR  ", m)
 def parse_scores() -> pd.DataFrame:
     if not SCORES_FILE.exists():
         logger.error(f"{SCORES_FILE} not found! Create it first.")

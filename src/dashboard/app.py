@@ -10,7 +10,8 @@ import json
 import plotly.graph_objects as go
 import plotly.express as px
 from pathlib import Path
-import sys
+from datetime import date
+import subprocess, sys
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -27,65 +28,68 @@ PROC   = Path("data/processed")
 MODELS = Path("models")
 RAW    = Path("data/raw")
 
-# ── CSS custom ────────────────────────────────────────────────────────────────
+# ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-    .main { background-color: #0e1117; }
-    .metric-card {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-        border: 1px solid #0f3460;
-        border-radius: 12px;
-        padding: 16px;
-        text-align: center;
+    .main { background-color: #0a0e1a; }
+    .block-container { padding-top: 1rem !important; }
+    div[data-testid="metric-container"] {
+        background: linear-gradient(135deg, #1a1a2e 0%, #0f2044 100%);
+        border: 1px solid #1e3a5f; border-radius: 14px;
+        padding: 18px 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.4);
     }
-    .team-winner {
-        font-size: 1.4em;
-        font-weight: bold;
-        color: #FFD700;
+    div[data-testid="metric-container"] label { color: #8aafd4 !important; font-size: 0.78em !important; }
+    div[data-testid="metric-container"] [data-testid="stMetricValue"] {
+        color: #ffffff !important; font-size: 1.35em !important; font-weight: 700 !important;
     }
-    .prob-bar { height: 8px; border-radius: 4px; background: #1a1a2e; }
+    div[data-testid="metric-container"] [data-testid="stMetricDelta"] { color: #FFD700 !important; }
+    .match-card {
+        background: linear-gradient(135deg, #111827 0%, #1a2540 100%);
+        border-radius: 12px; padding: 14px 20px; margin-bottom: 10px;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.5);
+    }
     h1 { color: #FFD700 !important; }
-    .stTabs [data-baseweb="tab"] { font-size: 16px; font-weight: 600; }
+    h2, h3 { color: #e2e8f0 !important; }
+    .stTabs [data-baseweb="tab-list"] {
+        background: #111827; border-radius: 12px; padding: 4px 6px;
+        gap: 4px; border: 1px solid #1e2d45;
+    }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 20px; font-weight: 700; color: #8aafd4;
+        border-radius: 8px; padding: 14px 28px; background: transparent; border: none !important;
+    }
+    .stTabs [data-baseweb="tab"]:hover { background: #1e2d45; color: #e2e8f0; }
+    .stTabs [data-baseweb="tab"][aria-selected="true"] {
+        background: #1e3a5f !important; color: #FFD700 !important;
+    }
+    .stTabs [data-baseweb="tab-highlight"] { display: none; }
+    .stTabs [data-baseweb="tab-border"] { display: none; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #0a0e1a; }
+    ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 3px; }
 </style>
 """, unsafe_allow_html=True)
 
-
-# ── Data loading ──────────────────────────────────────────────────────────────
-@st.cache_data
-def load_simulation():
-    return pd.read_csv(PROC / "simulation_results.csv")
-
-@st.cache_data
-def load_team_features():
-    return pd.read_csv(PROC / "team_features.csv")
-
-@st.cache_data
-def load_squads():
-    return pd.read_csv(RAW / "squads/wc2026_squads.csv")
-
-@st.cache_data
-def load_live_results():
-    df = pd.read_csv(RAW / "historical/wc2026_results_live.csv", parse_dates=["date"])
-    return df
-
-@st.cache_data
-def load_model_metrics():
-    with open(MODELS / "model_metrics.json") as f:
-        return json.load(f)
-
+# ── Constants ─────────────────────────────────────────────────────────────────
 WC2026_GROUPS = {
     "A": ["Mexico", "South Africa", "South Korea", "Czech Republic"],
-    "B": ["United States", "Paraguay", "Qatar", "Switzerland"],
-    "C": ["Canada", "Bosnia and Herzegovina", "Ukraine", "Jordan"],
-    "D": ["Brazil", "Morocco", "Haiti", "Scotland"],
-    "E": ["Germany", "Ecuador", "Ivory Coast", "Curacao"],
-    "F": ["Netherlands", "Japan", "Tunisia", "Sweden"],
-    "G": ["Spain", "Cape Verde", "Uzbekistan", "DR Congo"],
-    "H": ["Belgium", "Egypt", "Iraq", "Norway"],
-    "I": ["Saudi Arabia", "Uruguay", "Iran", "New Zealand"],
-    "J": ["France", "Senegal", "Colombia", "Algeria"],
-    "K": ["Argentina", "Austria", "Panama", "Ghana"],
-    "L": ["Portugal", "Croatia", "Turkey", "England"],
+    "B": ["Canada", "Bosnia and Herzegovina", "Qatar", "Switzerland"],
+    "C": ["Brazil", "Morocco", "Haiti", "Scotland"],
+    "D": ["United States", "Paraguay", "Australia", "Turkey"],
+    "E": ["Germany", "Curacao", "Ivory Coast", "Ecuador"],
+    "F": ["Netherlands", "Japan", "Sweden", "Tunisia"],
+    "G": ["Belgium", "Egypt", "Iran", "New Zealand"],
+    "H": ["Spain", "Cape Verde", "Saudi Arabia", "Uruguay"],
+    "I": ["France", "Senegal", "Iraq", "Norway"],
+    "J": ["Argentina", "Algeria", "Austria", "Jordan"],
+    "K": ["Portugal", "DR Congo", "Uzbekistan", "Colombia"],
+    "L": ["England", "Croatia", "Ghana", "Panama"],
+}
+
+GROUP_COLORS = {
+    "A": "#e74c3c", "B": "#e67e22", "C": "#f39c12", "D": "#27ae60",
+    "E": "#16a085", "F": "#2980b9", "G": "#8e44ad", "H": "#c0392b",
+    "I": "#00b4d8", "J": "#f77f00", "K": "#52b788", "L": "#e63946",
 }
 
 FLAG_MAP = {
@@ -101,370 +105,462 @@ FLAG_MAP = {
     "France": "🇫🇷", "Senegal": "🇸🇳", "Colombia": "🇨🇴", "Algeria": "🇩🇿",
     "Argentina": "🇦🇷", "Austria": "🇦🇹", "Panama": "🇵🇦", "Ghana": "🇬🇭",
     "Portugal": "🇵🇹", "Croatia": "🇭🇷", "Turkey": "🇹🇷", "England": "🇬🇧",
+    "Australia": "🇦🇺",
 }
 
+LIVE_NAME_MAP = {"USA": "United States", "Brasil": "Brazil"}
+TEAM_TO_GROUP = {t: g for g, teams in WC2026_GROUPS.items() for t in teams}
 
-def flag(team):
-    return FLAG_MAP.get(team, "🏳️")
+
+def flag(team): return FLAG_MAP.get(team, "🏳️")
+def norm(name): return LIVE_NAME_MAP.get(name, name)
 
 
-# ── Header ────────────────────────────────────────────────────────────────────
-st.title("🏆 FIFA World Cup 2026 — AI Predictor")
-st.caption("Modèle XGBoost + Monte Carlo 10 000 simulations | Données FBref 2025-26")
+# ── Data loaders ──────────────────────────────────────────────────────────────
+@st.cache_data
+def load_simulation():
+    return pd.read_csv(PROC / "simulation_results.csv")
+
+@st.cache_data
+def load_team_features():
+    return pd.read_csv(PROC / "team_features.csv")
+
+@st.cache_data
+def load_squads():
+    return pd.read_csv(RAW / "squads/wc2026_squads.csv")
+
+@st.cache_data
+def load_live_results():
+    return pd.read_csv(RAW / "historical/wc2026_results_live.csv", parse_dates=["date"])
+
+@st.cache_data
+def load_model_metrics():
+    with open(MODELS / "model_metrics.json") as f:
+        return json.load(f)
+
+@st.cache_data
+def load_schedule():
+    path = RAW / "historical/wc2026_schedule.csv"
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path, parse_dates=["date"])
+
+
+# ── HTML helpers ──────────────────────────────────────────────────────────────
+def match_card_mini_html(h, a, hg, ag, group, date_short):
+    hw = hg > ag; aw = ag > hg
+    hn = "color:#e2e8f0;font-weight:600;" if hw else ("color:#6b7280;" if aw else "color:#cbd5e1;")
+    an = "color:#e2e8f0;font-weight:600;" if aw else ("color:#6b7280;" if hw else "color:#cbd5e1;")
+    hs = "color:#ffffff;font-weight:800;" if hw else "color:#6b7280;"
+    as_ = "color:#ffffff;font-weight:800;" if aw else "color:#6b7280;"
+    ha = " ◄" if hw else ""
+    aa = " ◄" if aw else ""
+    return f"""
+<div style="background:#161d2e;border:1px solid #1e2d45;border-radius:8px;
+            padding:8px 10px;margin-bottom:5px;">
+  <div style="color:#4b5e7a;font-size:0.65em;font-weight:600;letter-spacing:0.06em;margin-bottom:6px;">GROUPE {group}</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+    <div style="flex:1;min-width:0;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:0.8em;{hn}">{flag(h)}&nbsp;{h}</span>
+        <span style="font-size:0.85em;{hs};margin-left:6px;">{hg}{ha}</span>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <span style="font-size:0.8em;{an}">{flag(a)}&nbsp;{a}</span>
+        <span style="font-size:0.85em;{as_};margin-left:6px;">{ag}{aa}</span>
+      </div>
+    </div>
+    <div style="border-left:1px solid #1e2d45;padding-left:8px;flex-shrink:0;text-align:center;">
+      <div style="color:#38bdf8;font-size:0.62em;font-weight:700;">Termine</div>
+      <div style="color:#4b5e7a;font-size:0.6em;margin-top:2px;">{date_short}</div>
+    </div>
+  </div>
+</div>"""
+
+
+def upcoming_card_html(h, a, group, fav, time_str=""):
+    color = GROUP_COLORS.get(group, "#4a9eff")
+    hs = "color:#e2e8f0;font-weight:600;" if fav == h else "color:#94a3b8;"
+    as_ = "color:#e2e8f0;font-weight:600;" if fav == a else "color:#94a3b8;"
+    time_html = f'<div style="color:#4b5e7a;font-size:0.6em;margin-top:2px;">{time_str}</div>' if time_str else ""
+    return f"""
+<div style="background:#161d2e;border:1px solid #1e2d45;border-radius:8px;
+            padding:8px 10px;margin-bottom:5px;">
+  <div style="color:#4b5e7a;font-size:0.65em;font-weight:700;letter-spacing:0.06em;margin-bottom:6px;">GROUPE {group}</div>
+  <div style="display:flex;align-items:center;gap:6px;">
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:0.8em;{hs};margin-bottom:4px;">{flag(h)}&nbsp;{h}</div>
+      <div style="font-size:0.8em;{as_}">{flag(a)}&nbsp;{a}</div>
+    </div>
+    <div style="border-left:1px solid #1e2d45;padding-left:8px;flex-shrink:0;text-align:center;">
+      <div style="color:{color};font-size:1em;font-weight:800;">vs</div>
+      {time_html}
+    </div>
+  </div>
+</div>"""
+
+
+def compute_standings(group_teams, live_df):
+    s = {t: {"P": 0, "W": 0, "N": 0, "D": 0, "BP": 0, "BC": 0, "Pts": 0} for t in group_teams}
+    for _, m in live_df.iterrows():
+        h, a = norm(m["home_team"]), norm(m["away_team"])
+        if h not in s or a not in s:
+            continue
+        hg, ag = int(m["home_goals"]), int(m["away_goals"])
+        s[h]["P"] += 1; s[h]["BP"] += hg; s[h]["BC"] += ag
+        s[a]["P"] += 1; s[a]["BP"] += ag; s[a]["BC"] += hg
+        if hg > ag:
+            s[h]["W"] += 1; s[h]["Pts"] += 3; s[a]["D"] += 1
+        elif ag > hg:
+            s[a]["W"] += 1; s[a]["Pts"] += 3; s[h]["D"] += 1
+        else:
+            s[h]["N"] += 1; s[h]["Pts"] += 1
+            s[a]["N"] += 1; s[a]["Pts"] += 1
+    rows = [{"Equipe": f"{flag(t)} {t}", "J": s[t]["P"], "G": s[t]["W"],
+             "N": s[t]["N"], "P": s[t]["D"], "BP": s[t]["BP"], "BC": s[t]["BC"],
+             "+/-": s[t]["BP"]-s[t]["BC"], "Pts": s[t]["Pts"]} for t in group_teams]
+    return pd.DataFrame(rows).sort_values(["Pts", "+/-", "BP"], ascending=False).reset_index(drop=True)
+
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 try:
-    sim    = load_simulation()
-    tf     = load_team_features()
-    squads = load_squads()
-    live   = load_live_results()
-    metrics = load_model_metrics()
-    data_ok = True
+    sim      = load_simulation()
+    tf       = load_team_features()
+    squads   = load_squads()
+    live     = load_live_results()
+    metrics  = load_model_metrics()
+    schedule = load_schedule()
 except Exception as e:
-    st.error(f"Erreur chargement données: {e}")
-    data_ok = False
+    st.error(f"Erreur chargement donnees: {e}")
     st.stop()
 
-# ── KPIs top ──────────────────────────────────────────────────────────────────
-top1 = sim.iloc[0]
-top2 = sim.iloc[1]
-top3 = sim.iloc[2]
+rank_lookup = dict(zip(tf["team"], tf["fifa_rank"])) if "fifa_rank" in tf.columns else {}
 
+# ── Header ────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;">
+  <span style="font-size:3em;">🏆</span>
+  <div>
+    <h1 style="margin:0;font-size:2em;color:#FFD700;">FIFA World Cup 2026</h1>
+    <p style="margin:0;color:#8aafd4;font-size:0.95em;">AI Predictor — XGBoost + Monte Carlo 10 000 simulations</p>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ── KPIs ──────────────────────────────────────────────────────────────────────
+top1, top2, top3 = sim.iloc[0], sim.iloc[1], sim.iloc[2]
 c1, c2, c3, c4, c5 = st.columns(5)
-with c1:
-    st.metric("🥇 Favori", f"{flag(top1['team'])} {top1['team']}", f"{top1['prob_winner']*100:.1f}%")
-with c2:
-    st.metric("🥈 2ème favori", f"{flag(top2['team'])} {top2['team']}", f"{top2['prob_winner']*100:.1f}%")
-with c3:
-    st.metric("🥉 3ème favori", f"{flag(top3['team'])} {top3['team']}", f"{top3['prob_winner']*100:.1f}%")
-with c4:
-    st.metric("🎯 Précision modèle", f"{metrics['wc_validation']['result_accuracy']*100:.1f}%", "sur matchs WC hist.")
-with c5:
-    st.metric("📊 Matchs simulés", "10 000", "Monte Carlo")
+with c1: st.metric("🥇 Favori",      f"{flag(top1['team'])} {top1['team']}", f"{top1['prob_winner']*100:.1f}%")
+with c2: st.metric("🥈 2eme favori", f"{flag(top2['team'])} {top2['team']}", f"{top2['prob_winner']*100:.1f}%")
+with c3: st.metric("🥉 3eme favori", f"{flag(top3['team'])} {top3['team']}", f"{top3['prob_winner']*100:.1f}%")
+with c4: st.metric("Precision modele", f"{metrics['wc_validation']['result_accuracy']*100:.1f}%", "matchs WC hist.")
+with c5: st.metric("Matchs joues", str(len(live)), f"sur 72 phase groupes")
 
 st.divider()
 
 # ── Tabs ──────────────────────────────────────────────────────────────────────
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "🏆 Probabilités", "👥 Groupes", "⚽ Résultats live", "📊 Stats équipes", "🔬 Modèle"
+    "🏆 Probabilites", "⚽ Resultats live", "👥 Groupes", "📊 Stats equipes", "🔬 Modele"
 ])
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 1 — Probabilités de victoire
+# TAB 1 — Probabilités
 # ══════════════════════════════════════════════════════════════════════════════
 with tab1:
-    st.subheader("Probabilités de remporter la Coupe du Monde")
-
+    st.subheader("Probabilites de remporter la Coupe du Monde")
     col_left, col_right = st.columns([2, 1])
 
     with col_left:
-        # Bar chart top 20
         top20 = sim.head(20).copy()
         top20["label"] = top20["team"].apply(lambda t: f"{flag(t)} {t}")
-
         fig = go.Figure()
-        stages = [
-            ("prob_winner", "#FFD700", "🏆 Vainqueur"),
+        for col, color, name in [
+            ("prob_winner", "#FFD700", "Vainqueur"),
             ("prob_final",  "#C0C0C0", "Finaliste"),
             ("prob_sf",     "#CD7F32", "Demi-finale"),
             ("prob_qf",     "#4a9eff", "Quart de finale"),
-        ]
-
-        for col, color, name in stages:
-            fig.add_trace(go.Bar(
-                name=name,
-                x=top20["label"],
-                y=top20[col] * 100,
-                marker_color=color,
-                opacity=0.85,
-            ))
-
+        ]:
+            fig.add_trace(go.Bar(name=name, x=top20["label"], y=top20[col]*100,
+                                 marker_color=color, opacity=0.88))
         fig.update_layout(
-            barmode="group",
-            template="plotly_dark",
-            height=480,
-            showlegend=True,
-            xaxis_tickangle=-35,
-            yaxis_title="Probabilité (%)",
-            title="Top 20 équipes — probabilités de progression",
+            barmode="group", template="plotly_dark", height=480,
+            paper_bgcolor="#111827", plot_bgcolor="#111827",
+            xaxis_tickangle=-35, yaxis_title="Probabilite (%)",
+            title="Top 20 equipes — probabilites de progression",
             margin=dict(t=50, b=100),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
         st.plotly_chart(fig, use_container_width=True)
 
     with col_right:
-        st.markdown("#### 🏆 Top 10 gagnants probables")
-        for _, row in sim.head(10).iterrows():
+        st.markdown("#### Top 10 gagnants probables")
+        for idx, (_, row) in enumerate(sim.head(10).iterrows()):
             pct = row["prob_winner"] * 100
-            st.markdown(
-                f"**{flag(row['team'])} {row['team']}** — {pct:.1f}%"
-            )
-            st.progress(min(float(row["prob_winner"]) * 10, 1.0))  # scale for visibility
+            medal = ["🥇","🥈","🥉"][idx] if idx < 3 else f"**{idx+1}.**"
+            st.markdown(f"{medal} **{flag(row['team'])} {row['team']}** — `{pct:.1f}%`")
+            st.progress(min(float(row["prob_winner"]) * 10, 1.0))
 
-    # Tableau complet
-    st.subheader("Tableau complet des probabilités")
+    st.subheader("Tableau complet des probabilites")
     display_df = sim.copy()
     display_df["team"] = display_df["team"].apply(lambda t: f"{flag(t)} {t}")
-    for col in ["prob_winner", "prob_final", "prob_sf", "prob_qf", "prob_r32", "prob_qualify"]:
+    for col in ["prob_winner","prob_final","prob_sf","prob_qf","prob_r32","prob_qualify"]:
         display_df[col] = display_df[col].apply(lambda x: f"{x*100:.1f}%")
-    display_df.columns = ["Équipe", "Groupe", "Vainqueur", "Finale", "½ Finale", "¼ Finale", "R32", "Phase de groupes"]
-    st.dataframe(display_df, use_container_width=True, height=400)
+    display_df.columns = ["Equipe","Groupe","Vainqueur","Finale","1/2 Finale","1/4 Finale","R32","Phase de groupes"]
+    st.dataframe(display_df, use_container_width=True, height=420)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 2 — Groupes
+# TAB 2 — Résultats live
 # ══════════════════════════════════════════════════════════════════════════════
 with tab2:
-    st.subheader("Phase de groupes — probabilités de qualification")
+    st.subheader("Phase de groupes")
 
-    group_cols = st.columns(3)
-    groups_list = list(WC2026_GROUPS.items())
+    today = date.today()
+    played_pairs = set()
+    for _, m in live.iterrows():
+        played_pairs.add((norm(m["home_team"]), norm(m["away_team"])))
 
-    for i, (group_name, teams) in enumerate(groups_list):
-        col = group_cols[i % 3]
-        with col:
-            st.markdown(f"### Groupe {group_name}")
-            group_data = sim[sim["team"].isin(teams)].copy()
-            group_data = group_data.sort_values("prob_qualify", ascending=False)
+    _, col_results, _ = st.columns([1.5, 4, 1.5])
 
-            rows = []
-            for _, row in group_data.iterrows():
-                rows.append({
-                    "": f"{flag(row['team'])} {row['team']}",
-                    "Qualif%": f"{row['prob_qualify']*100:.0f}%",
-                    "Victoire%": f"{row['prob_winner']*100:.1f}%",
-                })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    # ── Résultats joués ───────────────────────────────────────────────────────
+    with col_results:
+        col_btn, _ = st.columns([1, 2])
+        with col_btn:
+            run_update = st.button("Mettre a jour", type="primary", use_container_width=True)
 
-    # Sunburst chart par groupe
-    st.subheader("Répartition des probabilités de victoire par groupe")
-    fig_sb = px.sunburst(
-        sim,
-        path=["group", "team"],
-        values="prob_winner",
-        color="prob_winner",
-        color_continuous_scale="Viridis",
-        template="plotly_dark",
-    )
-    fig_sb.update_layout(height=600, title="Part de chaque équipe dans les probabilités de victoire")
-    st.plotly_chart(fig_sb, use_container_width=True)
+        if run_update:
+            scores_path = Path("scores.txt")
+            if not scores_path.exists():
+                st.error("scores.txt introuvable a la racine du projet !")
+            else:
+                progress = st.progress(0, text="Lecture de scores.txt...")
+                status   = st.empty()
+                progress.progress(10, text="Mise a jour des resultats...")
+                result_update = subprocess.run(
+                    [r"C:\Users\etien\anaconda3\envs\wc2026\python.exe", "src/collect/update_live.py", "--fetch"],
+                    capture_output=True, text=True,
+                    env={**__import__('os').environ, "PYTHONIOENCODING": "utf-8"}
+                )
+                if result_update.returncode != 0:
+                    st.error(f"Erreur update_live:\n{result_update.stderr}")
+                    progress.empty()
+                else:
+                    progress.progress(30, text="Simulation Monte Carlo en cours...")
+                    status.info("Simulation en cours... (~1-2 min)")
+                    result_sim = subprocess.run(
+                        [r"C:\Users\etien\anaconda3\envs\wc2026\python.exe", "src/model/simulate.py"],
+                        capture_output=True, text=True,
+                        env={**__import__('os').environ, "PYTHONIOENCODING": "utf-8"}
+                    )
+                    if result_sim.returncode != 0:
+                        st.error(f"Erreur simulation:\n{result_sim.stderr}")
+                        progress.empty(); status.empty()
+                    else:
+                        progress.progress(100, text="Termine !")
+                        status.success("Predictions mises a jour ! Rafraichis la page.")
+                        st.balloons()
+                        st.cache_data.clear()
+
+        st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+
+        if len(live) > 0:
+            live_sorted = live.copy()
+            live_sorted["date_key"]   = live_sorted["date"].dt.strftime("%Y-%m-%d")
+            live_sorted["date_label"] = live_sorted["date"].dt.strftime("%a. %d/%m")
+            live_sorted["date_short"] = live_sorted["date"].dt.strftime("%a. %d/%m")
+            live_sorted = live_sorted.sort_values("date", ascending=False)
+
+            for date_key, day_matches in live_sorted.groupby("date_key", sort=False):
+                day_list   = list(day_matches.iterrows())
+                date_label = day_list[0][1]["date_label"]
+                st.markdown(
+                    f"<div style='color:#8aafd4;font-size:0.8em;font-weight:700;"
+                    f"letter-spacing:0.06em;margin:14px 0 6px;padding-bottom:5px;"
+                    f"border-bottom:1px solid #1e2d45;'>Phase de groupes &nbsp;·&nbsp; {date_label}</div>",
+                    unsafe_allow_html=True,
+                )
+                c1, c2 = st.columns(2)
+                for i, (_, match) in enumerate(day_list):
+                    h, a   = norm(match["home_team"]), norm(match["away_team"])
+                    hg, ag = int(match["home_goals"]), int(match["away_goals"])
+                    group  = match.get("group", TEAM_TO_GROUP.get(h, "?"))
+                    with (c1 if i % 2 == 0 else c2):
+                        st.markdown(match_card_mini_html(h, a, hg, ag, group, match["date_short"]), unsafe_allow_html=True)
+        else:
+            st.info("Aucun resultat. Ajoute des scores dans scores.txt et clique sur le bouton !")
+
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TAB 3 — Résultats live + bouton update
+# TAB 3 — Groupes
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
-    st.subheader("⚽ Résultats WC2026 — Phase de groupes")
+    st.subheader("Phase de groupes — classements & probabilites")
+    group_cols = st.columns(3)
 
-    # ── Bouton Update ─────────────────────────────────────────────────────────
-    col_btn, col_info = st.columns([1, 3])
-    with col_btn:
-        run_update = st.button("🔄 Mettre à jour les prédictions", type="primary", use_container_width=True)
-    with col_info:
-        st.caption("Lance la lecture de `scores.txt` + re-simulation Monte Carlo (10 000 itérations)")
-
-    if run_update:
-        scores_path = Path("scores.txt")
-        if not scores_path.exists():
-            st.error("❌ `scores.txt` introuvable à la racine du projet !")
-        else:
-            # Progress bar
-            progress = st.progress(0, text="⏳ Lecture de scores.txt...")
-            status   = st.empty()
-
-            import subprocess, sys, time
-
-            # Étape 1 — update_live (fetch + patch simulate.py)
-            progress.progress(10, text="📥 Mise à jour des résultats...")
-            result_update = subprocess.run(
-                [sys.executable, "src/collect/update_live.py", "--fetch"],
-                capture_output=True, text=True
+    for i, (group_name, teams) in enumerate(WC2026_GROUPS.items()):
+        gc = GROUP_COLORS.get(group_name, "#4a9eff")
+        with group_cols[i % 3]:
+            st.markdown(
+                f'<span style="background:{gc}22;color:{gc};border:1px solid {gc}44;'
+                f'font-size:0.72em;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;'
+                f'padding:3px 10px;border-radius:20px;display:inline-block;margin-bottom:8px;">'
+                f'Groupe {group_name}</span>',
+                unsafe_allow_html=True,
             )
-            if result_update.returncode != 0:
-                st.error(f"❌ Erreur update_live:\n```\n{result_update.stderr}\n```")
-                progress.empty()
-            else:
-                progress.progress(30, text="🤖 Lancement de la simulation Monte Carlo (10 000 itérations)...")
-                status.info("⚙️ Simulation en cours... (~1-2 min)")
+            standings = compute_standings(teams, live)
+            col_cfg = {k: st.column_config.NumberColumn(width="small")
+                       for k in ["J","G","N","P","BP","BC","+/-","Pts"]}
+            col_cfg["Equipe"] = st.column_config.TextColumn(width="medium")
+            st.dataframe(standings, column_config=col_cfg, use_container_width=True,
+                         hide_index=True, height=178)
 
-                # Étape 2 — simulate
-                result_sim = subprocess.run(
-                    [sys.executable, "src/model/simulate.py"],
-                    capture_output=True, text=True
-                )
-
-                if result_sim.returncode != 0:
-                    st.error(f"❌ Erreur simulation:\n```\n{result_sim.stderr}\n```")
-                    progress.empty()
-                    status.empty()
-                else:
-                    progress.progress(100, text="✅ Simulation terminée !")
-                    status.success("✅ Prédictions mises à jour ! Rafraîchis la page pour voir les nouveaux résultats.")
-                    st.balloons()
-                    # Clear cache pour recharger les données
-                    st.cache_data.clear()
+            with st.expander("Probabilites IA", expanded=False):
+                gd = sim[sim["team"].isin(teams)].sort_values("prob_qualify", ascending=False)
+                rows = [{"": f"{flag(r['team'])} {r['team']}",
+                         "Qualif": f"{r['prob_qualify']*100:.0f}%",
+                         "Titre": f"{r['prob_winner']*100:.1f}%"}
+                        for _, r in gd.iterrows()]
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     st.divider()
+    st.subheader("Repartition des probabilites de victoire par groupe")
+    fig_sb = px.sunburst(sim, path=["group","team"], values="prob_winner",
+                         color="prob_winner", color_continuous_scale="plasma",
+                         template="plotly_dark")
+    fig_sb.update_layout(height=580, paper_bgcolor="#111827",
+                         title="Part de chaque equipe dans les probabilites de victoire")
+    st.plotly_chart(fig_sb, use_container_width=True)
 
-    # ── Résultats affichés ────────────────────────────────────────────────────
-    if len(live) > 0:
-        for _, match in live.iterrows():
-            h, a = match["home_team"], match["away_team"]
-            hg, ag = int(match["home_goals"]), int(match["away_goals"])
-            group = match.get("group", "?")
-
-            col1, col2, col3 = st.columns([2, 1, 2])
-            with col1:
-                st.markdown(f"### {flag(h)} {h}")
-            with col2:
-                color = "#FFD700" if hg > ag else ("#FF4444" if hg < ag else "#888")
-                st.markdown(
-                    f"<h2 style='text-align:center; color:{color}'>{hg} — {ag}</h2>",
-                    unsafe_allow_html=True
-                )
-                st.caption(f"Groupe {group} | {str(match['date'])[:10]}")
-            with col3:
-                st.markdown(f"### {flag(a)} {a}")
-            st.divider()
-    else:
-        st.info("Aucun résultat enregistré. Ajoute des scores dans `scores.txt` et clique sur le bouton !")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 4 — Stats équipes
 # ══════════════════════════════════════════════════════════════════════════════
 with tab4:
-    st.subheader("📊 Stats équipes WC2026")
-
+    st.subheader("Stats equipes WC2026")
     selected_team = st.selectbox(
-        "Sélectionne une équipe",
-        sorted([t for group in WC2026_GROUPS.values() for t in group]),
-        format_func=lambda t: f"{flag(t)} {t}"
+        "Selectionne une equipe",
+        sorted([t for g in WC2026_GROUPS.values() for t in g]),
+        format_func=lambda t: f"{flag(t)} {t}",
     )
 
-    col_a, col_b = st.columns(2)
+    team_group = TEAM_TO_GROUP.get(selected_team, "?")
+    gc         = GROUP_COLORS.get(team_group, "#4a9eff")
+    team_sim   = sim[sim["team"] == selected_team]
+    team_tf    = tf[tf["team"] == selected_team]
 
-    with col_a:
-        st.markdown(f"#### {flag(selected_team)} {selected_team}")
+    col_name, col_m1, col_m2, col_m3, col_m4 = st.columns([2.5, 1, 1, 1, 1])
+    with col_name:
+        st.markdown(
+            f'<div style="border-left:4px solid {gc};padding-left:12px;margin-top:6px;">'
+            f'<span style="font-size:1.4em;font-weight:700;color:#e2e8f0;">{flag(selected_team)}&nbsp;{selected_team}</span><br>'
+            f'<span style="font-size:0.75em;background:{gc}22;color:{gc};border:1px solid {gc}44;'
+            f'border-radius:20px;padding:2px 10px;font-weight:700;">Groupe {team_group}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+    if not team_sim.empty:
+        row   = team_sim.iloc[0]
+        _rank = tf[tf["team"] == selected_team]["fifa_rank"].values
+        _rv   = int(_rank[0]) if len(_rank) > 0 and not pd.isna(_rank[0]) else "N/A"
+        col_m1.metric("Rang FIFA", _rv)
+        col_m2.metric("Victoire",      f"{row['prob_winner']*100:.1f}%")
+        col_m3.metric("Qualification", f"{row['prob_qualify']*100:.1f}%")
+        col_m4.metric("Demi-finale",   f"{row['prob_sf']*100:.1f}%")
 
-        # Stats simulation
-        team_sim = sim[sim["team"] == selected_team]
-        if not team_sim.empty:
-            row = team_sim.iloc[0]
-            _rank = tf[tf["team"] == selected_team]["fifa_rank"].values
-            _rank_val = int(_rank[0]) if len(_rank) > 0 and not pd.isna(_rank[0]) else "N/A"
-            st.metric("Rang mondial (FIFA)", _rank_val)
-            st.metric("Probabilité victoire finale", f"{row['prob_winner']*100:.1f}%")
-            st.metric("Probabilité qualification", f"{row['prob_qualify']*100:.1f}%")
-            st.metric("Probabilité demi-finale", f"{row['prob_sf']*100:.1f}%")
+    st.markdown("<div style='margin-top:12px;'></div>", unsafe_allow_html=True)
+    col_radar, col_bar = st.columns(2)
 
-        # Squad
-        st.markdown("#### Effectif")
-        squad = squads[squads["team"] == selected_team][["number", "position", "name", "club", "caps", "age_at_wc"]]
-        st.dataframe(squad.reset_index(drop=True), use_container_width=True, height=300)
-
-    with col_b:
-        # Radar chart des stats
-        team_tf = tf[tf["team"] == selected_team]
+    with col_radar:
         if not team_tf.empty:
             radar_cols = {
-                "avg_goals_per90":    "Buts/90",
-                "avg_assists_per90":  "Passes dé/90",
-                "avg_shots_per90":    "Tirs/90",
-                "squad_avg_caps":     "Caps moy.",
-                "fifa_points":        "Points FIFA",
+                "avg_goals_per90":   "Buts/90",
+                "avg_assists_per90": "Passes de/90",
+                "avg_shots_per90":   "Tirs/90",
+                "squad_avg_caps":    "Caps moy.",
+                "fifa_points":       "Points FIFA",
             }
-            available_radar = {k: v for k, v in radar_cols.items() if k in team_tf.columns}
-
-            if len(available_radar) >= 3:
-                vals = []
-                labels = []
-                for col, label in available_radar.items():
-                    raw = float(team_tf[col].values[0]) if not pd.isna(team_tf[col].values[0]) else 0
-                    # Normaliser 0-1 par rapport au max global
-                    col_max = tf[col].max() if col in tf.columns else 1
-                    vals.append(raw / col_max if col_max > 0 else 0)
+            avail = {k: v for k, v in radar_cols.items() if k in team_tf.columns}
+            if len(avail) >= 3:
+                vals, labels = [], []
+                for c, label in avail.items():
+                    raw = float(team_tf[c].values[0]) if not pd.isna(team_tf[c].values[0]) else 0
+                    col_max = tf[c].max() if c in tf.columns and tf[c].max() > 0 else 1
+                    vals.append(raw / col_max)
                     labels.append(label)
-
-                fig_radar = go.Figure(go.Scatterpolar(
-                    r=vals + [vals[0]],
-                    theta=labels + [labels[0]],
+                fig_r = go.Figure(go.Scatterpolar(
+                    r=vals+[vals[0]], theta=labels+[labels[0]],
                     fill="toself",
-                    fillcolor="rgba(74, 158, 255, 0.3)",
-                    line=dict(color="#4a9eff", width=2),
-                    name=selected_team,
+                    fillcolor=f"rgba({int(gc[1:3],16)},{int(gc[3:5],16)},{int(gc[5:7],16)},0.25)",
+                    line=dict(color=gc, width=2.5),
                 ))
-                fig_radar.update_layout(
-                    polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
-                    template="plotly_dark",
-                    showlegend=False,
-                    height=350,
-                    title=f"Profil de {selected_team} (normalisé)",
+                fig_r.update_layout(
+                    polar=dict(radialaxis=dict(visible=True, range=[0,1], gridcolor="#1e3a5f"), bgcolor="#111827"),
+                    template="plotly_dark", paper_bgcolor="#111827",
+                    showlegend=False, height=320, title="Profil (normalise)",
+                    margin=dict(t=40, b=20, l=30, r=30),
                 )
-                st.plotly_chart(fig_radar, use_container_width=True)
+                st.plotly_chart(fig_r, use_container_width=True)
 
-        # Comparaison avec d'autres équipes
-        st.markdown("#### Comparaison — probabilités de victoire")
-        group_of_team = next((g for g, teams in WC2026_GROUPS.items() if selected_team in teams), None)
-        if group_of_team:
-            group_teams = WC2026_GROUPS[group_of_team]
+    with col_bar:
+        if team_group:
+            group_teams = WC2026_GROUPS[team_group]
             comp_df = sim[sim["team"].isin(group_teams)].copy()
-            comp_df["label"] = comp_df["team"].apply(lambda t: f"{flag(t)} {t}")
-            fig_bar = px.bar(
-                comp_df,
-                x="label",
-                y="prob_winner",
-                color="prob_winner",
-                color_continuous_scale="Blues",
-                template="plotly_dark",
-                title=f"Groupe {group_of_team} — probabilités de victoire finale",
-                labels={"prob_winner": "Prob. victoire", "label": ""},
+            comp_df["label"]     = comp_df["team"].apply(lambda t: f"{flag(t)} {t}")
+            comp_df["highlight"] = comp_df["team"].apply(lambda t: gc if t == selected_team else "#334155")
+            fig_b = go.Figure(go.Bar(
+                x=comp_df["label"], y=comp_df["prob_winner"]*100,
+                marker_color=comp_df["highlight"].tolist(),
+                text=comp_df["prob_winner"].apply(lambda x: f"{x*100:.1f}%"),
+                textposition="outside",
+            ))
+            fig_b.update_layout(
+                template="plotly_dark", paper_bgcolor="#111827", plot_bgcolor="#111827",
+                title=f"Groupe {team_group} — prob. victoire finale",
+                yaxis_title="Prob. (%)", showlegend=False, height=320,
+                margin=dict(t=40, b=10),
             )
-            fig_bar.update_layout(showlegend=False, coloraxis_showscale=False)
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_b, use_container_width=True)
+
+    # Effectif
+    st.markdown("#### Effectif")
+    squad = squads[squads["team"] == selected_team][["number","position","name","club","caps","age_at_wc"]]
+    st.dataframe(squad.reset_index(drop=True), use_container_width=True, height=300)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TAB 5 — Modèle
 # ══════════════════════════════════════════════════════════════════════════════
 with tab5:
-    st.subheader("🔬 Métriques du modèle")
-
+    st.subheader("Metriques du modele")
     c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric("Précision résultats WC", f"{metrics['wc_validation']['result_accuracy']*100:.1f}%")
-    with c2:
-        st.metric("MAE buts domicile", metrics['wc_validation']['home_goals_mae'])
-    with c3:
-        st.metric("MAE buts extérieur", metrics['wc_validation']['away_goals_mae'])
-    with c4:
-        st.metric("Matchs d'entraînement", f"{metrics['training_samples']:,}")
+    with c1: st.metric("Precision WC",     f"{metrics['wc_validation']['result_accuracy']*100:.1f}%")
+    with c2: st.metric("MAE buts domicile", metrics['wc_validation']['home_goals_mae'])
+    with c3: st.metric("MAE buts exterieur",metrics['wc_validation']['away_goals_mae'])
+    with c4: st.metric("Matchs entrainement",f"{metrics['training_samples']:,}")
 
     st.markdown("""
-    #### Architecture du modèle
+    #### Architecture
 
-    **Données** : FBref 2025-26 (Big 5 européens) + 15 819 résultats internationaux 2010-2026
+    **Donnees** : FBref 2025-26 (Big 5) + resultats internationaux 2018-2026
 
-    **Modèle** : Deux XGBoost indépendants
-    - `home_goals_model` → prédit les buts de l'équipe 1
-    - `away_goals_model` → prédit les buts de l'équipe 2
+    **Modele** : 2 XGBoost independants
+    - `home_goals_model` → buts equipe domicile
+    - `away_goals_model` → buts equipe exterieur
 
-    **Features** :
-    - Ranking FIFA (home + away + différence)
-    - Points FIFA (différence)
-    - Forme récente (points sur 10 derniers matchs)
-    - H2H (victoires sur 5 derniers face-à-face)
-    - Type de match (WC vs amical)
+    **Features** : Ranking FIFA, Points FIFA, Forme recente (10 derniers matchs), H2H (5 derniers), Type de match
 
-    **Simulation** : Monte Carlo 10 000 itérations
-    - Phase de groupes simulée via distribution de Poisson
-    - Phase éliminatoire avec penalties (probabilité pondérée par ranking)
-    - Résultats déjà joués fixés, matchs futurs simulés
+    **Simulation** : Monte Carlo 10 000 iterations — Poisson pour les scores, penalties ponderees par ranking
     """)
-
-    st.markdown("#### Features utilisées")
     st.code(json.dumps(metrics["features"], indent=2))
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
-st.caption("WC2026 Predictor | Etienne Gaillard | XGBoost + Monte Carlo | Données FBref + Wikipedia + martj42")
+st.markdown(
+    '<p style="text-align:center;color:#475569;font-size:0.8em;">'
+    'WC2026 Predictor &nbsp;·&nbsp; Etienne Gaillard &nbsp;·&nbsp; XGBoost + Monte Carlo &nbsp;·&nbsp; FBref + Wikipedia + martj42'
+    '</p>',
+    unsafe_allow_html=True,
+)

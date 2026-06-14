@@ -1,0 +1,27 @@
+{
+  "features": [
+    "home_fifa_rank",
+    "away_fifa_rank",
+    "fifa_rank_diff",
+    "fifa_points_diff",
+    "home_form_pts",
+    "away_form_pts",
+    "home_h2h_wins",
+    "away_h2h_wins",
+    "is_wc"
+  ],
+  "home_model": {
+    "mae": 1.1022,
+    "rmse": 1.4696
+  },
+  "away_model": {
+    "mae": 0.908,
+    "rmse": 1.2426
+  },
+  "wc_validation": {
+    "result_accuracy": 0.6172,
+    "home_goals_mae": 1.0183,
+    "away_goals_mae": 0.86
+  },
+  "training_samples": 9960
+}

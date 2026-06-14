@@ -1,7 +1,7 @@
 # Data collection
 requests==2.32.3
 beautifulsoup4==4.12.3
-lxml==5.2.2
+lxml>=4.9.0
 pandas==2.2.2
 numpy==1.26.4
 soccerdata==1.7.0
