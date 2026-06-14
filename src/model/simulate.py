@@ -48,6 +48,7 @@ PLAYED_MATCHES = [
     {"group": "C", "home": "Brasil", "away": "Morocco", "hg": 1, "ag": 1},  # 2026-06-14
     {"group": "C", "home": "Haiti", "away": "Scotland", "hg": 0, "ag": 1},  # 2026-06-14
     {"group": "D", "home": "Australia", "away": "Turkey", "hg": 2, "ag": 0},  # 2026-06-14
+    {"group": "E", "home": "Germany", "away": "Curaçao", "hg": 7, "ag": 1},  # 2026-06-14
 ]
 
 

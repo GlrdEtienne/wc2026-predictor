@@ -10,3 +10,4 @@
 2026-06-14 | C | Brasil | Morocco| 1-1
 2026-06-14 | C | Haiti | Scotland | 0-1
 2026-06-14 | D | Australia | Turkey | 2-0
+2026-06-14 | E | Germany | Curaçao | 7-1
