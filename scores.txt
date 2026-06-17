@@ -15,3 +15,10 @@
 2026-06-15 | E | Ivory Coast | Ecuador | 1-0
 2026-06-15 | F | Sweden | Tunisia | 5-1
 2026-06-15 | H | Spain | Cape Verde | 0-0
+2026-06-15 | H | Belgium | Egypt | 1-1
+2026-06-16 | H | Saudi Arabia | Uruguay | 1-1
+2026-06-16 | G | Iran | New Zealand | 2-2
+2026-06-16 | I | France | Senegal | 3-1
+2026-06-17 | I | Irak | Norway | 1-4
+2026-06-17 | J | Argentina | Algeria | 3-0
+2026-06-17 | J | Austria | Jordan | 3-1
