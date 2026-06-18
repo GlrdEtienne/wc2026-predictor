@@ -1,145 +1,101 @@
-# 🏆 WC2026 Predictor
+# WC2026 Predictor
 
-Projet de data science complet pour prédire le déroulement de la **FIFA World Cup 2026** (USA / Canada / Mexique).
+Petit projet de data science autour de la Coupe du Monde 2026 (USA / Canada / Mexique) : collecte des données joueurs et équipes, modèle de prédiction des scores, simulation Monte Carlo de la compétition complète, et un dashboard pour suivre tout ça en direct.
 
-## 🎯 Objectifs
+L'idée de base : récupérer les stats des ~1250 joueurs des 48 équipes qualifiées, les agréger au niveau équipe, et voir ce qu'un XGBoost couplé à 10 000 simulations peut dire sur le déroulement du tournoi — phase de groupes et élimination directe.
 
-- Collecter les stats individuelles des ~1 248 joueurs participants (48 équipes × 26 joueurs)
-- Agréger ces stats au niveau équipe pour construire des features de match
-- Entraîner un modèle de prédiction de score (XGBoost)
-- Simuler la compétition en Monte Carlo (10 000 itérations)
-- Visualiser les prédictions dans un dashboard Streamlit interactif
+## Sources de données
 
-## 📊 Sources de données
+- **Wikipedia** — effectifs officiels des 48 équipes et calendrier complet des matchs (scraping via l'API Wikimedia)
+- **FBref** (via `soccerdata`) — stats individuelles saison 2025-26 : xG, passes, duels, etc.
+- **martj42/international_results** (GitHub) — historique des résultats internationaux depuis 1872
+- **scores.txt** — fichier texte mis à jour à la main au fil des matchs pour réactualiser les prédictions
 
-| Source | Données | Accès |
-|--------|---------|-------|
-| Wikipedia | Squads officiels WC2026 (48 équipes) | Scraping gratuit |
-| FBref (via `soccerdata`) | Stats joueurs 2025-26 (xG, passes, duels...) | Gratuit (rate-limited) |
-| GitHub martj42 | Résultats internationaux historiques | CSV public |
-| API-Football | Live scores WC2026 | Free tier (100 req/day) |
-
-## 🗂️ Structure du projet
+## Structure
 
 ```
 wc2026-predictor/
 │
 ├── src/
-│   ├── collect/                  # Scripts de collecte de données
-│   │   ├── collect_squads.py         # Squads officiels WC2026
-│   │   ├── collect_player_stats.py   # Stats club 2025-26 (FBref)
-│   │   └── collect_rankings_and_history.py  # FIFA ranking + historique
+│   ├── collect/              # scripts de collecte
+│   │   ├── collect_squads.py
+│   │   ├── collect_player_stats.py
+│   │   ├── collect_rankings_and_history.py
+│   │   ├── collect_fixtures.py
+│   │   └── update_live.py
 │   │
-│   ├── features/                 # Feature engineering
-│   │   └── build_features.py         # Agrégation joueur → équipe
+│   ├── features/
+│   │   └── build_features.py     # agrégation joueurs → équipes
 │   │
-│   ├── model/                    # Modèles ML
-│   │   ├── train.py                  # Entraînement XGBoost
-│   │   └── simulate.py               # Monte Carlo simulation
+│   ├── model/
+│   │   ├── train.py               # XGBoost
+│   │   └── simulate.py            # Monte Carlo (vectorisé numpy)
 │   │
-│   └── dashboard/                # Visualisation
-│       └── app.py                    # Streamlit app
+│   └── dashboard/
+│       └── app.py                 # Streamlit
 │
 ├── data/
-│   ├── raw/                      # Données brutes (non versionnées)
-│   │   ├── squads/
-│   │   ├── player_stats/
-│   │   └── historical/
-│   └── processed/                # Features engineered (versionnées)
+│   ├── raw/                  # données brutes
+│   └── processed/            # features + résultats de simulation
 │
-├── notebooks/                    # Exploration & analyse
-├── tests/                        # Tests unitaires
-├── config.yaml                   # Configuration centralisée
+├── scores.txt                # résultats à jour manuellement
+├── config.yaml
 ├── requirements.txt
-├── Makefile                      # Commandes projet
-└── .env.example                  # Template variables d'environnement
+└── start.bat                 # lance tout en un clic (Windows)
 ```
 
-## 🚀 Quick Start
+## Installation
 
-### 1. Cloner et installer
+Le projet tourne avec Anaconda (numpy/pandas posent souvent des soucis de compilation avec pip seul sous Windows) :
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/wc2026-predictor.git
+git clone https://github.com/GlrdEtienne/wc2026-predictor.git
 cd wc2026-predictor
-make setup
+conda create -n wc2026 python=3.12
+conda activate wc2026
+conda install numpy pandas scikit-learn scipy
+pip install requests beautifulsoup4 lxml xgboost lightgbm tqdm streamlit plotly altair python-dotenv loguru pyyaml soccerdata
 ```
 
-### 2. Configurer les API keys
+## Faire tourner le pipeline
 
 ```bash
-cp .env.example .env
-# Éditer .env et ajouter ta RAPIDAPI_KEY
+# Collecte (dans l'ordre, le scraping FBref est le plus long ~15-30 min)
+python src/collect/collect_squads.py
+python src/collect/collect_rankings_and_history.py
+python src/collect/collect_fixtures.py
+python src/collect/collect_player_stats.py
+
+# Features + modèle
+python src/features/build_features.py
+python src/model/train.py
+python src/model/simulate.py
+
+# Dashboard
+streamlit run src/dashboard/app.py
 ```
 
-### 3. Collecter les données
+Pour mettre à jour les prédictions après une journée de matchs : éditer `scores.txt`, puis lancer `python src/collect/update_live.py` (ou cliquer sur le bouton dédié dans le dashboard).
 
-```bash
-# Tout en une fois
-make collect-all
+## Le modèle
 
-# Ou étape par étape
-make collect-squads     # Squads WC2026 (Wikipedia)
-make collect-history    # FIFA ranking + résultats historiques
-make collect-stats      # Stats joueurs FBref (long ~30 min)
-```
+Deux étapes distinctes :
 
-### 4. Entraîner le modèle
+**1. Prédiction du score** — deux XGBoost (un pour les buts à domicile, un pour l'extérieur), entraînés sur l'historique des matchs internationaux 2018-2026 avec une pondération plus forte sur les matchs de Coupe du Monde. Features : écart de ranking FIFA, forme récente, historique tête-à-tête.
 
-```bash
-make features   # Feature engineering
-make train      # Entraînement XGBoost
-make simulate   # Simulation Monte Carlo
-```
+**2. Simulation Monte Carlo** — les buts prédits servent de paramètre (lambda) à des tirages de Poisson. La compétition entière est simulée 10 000 fois : phase de groupes, qualification, puis élimination directe jusqu'à la finale. Les résultats déjà connus sont fixés, le reste est tiré aléatoirement. Les probabilités affichées sont juste la fréquence de chaque issue sur les 10 000 simulations.
 
-### 5. Lancer le dashboard
+Précision du modèle sur les matchs de Coupe du Monde historiques : ~62% sur le résultat (victoire/nul/défaite).
 
-```bash
-make run-dashboard
-# → http://localhost:8501
-```
+La première version de la simulation tournait en boucle Python classique et prenait ~1h40. Vectorisée avec numpy (toutes les prédictions XGBoost pré-calculées en une matrice, tirages de Poisson en bloc), elle tourne maintenant en moins d'une minute.
 
-## 🤖 Modèle
+## Dashboard
 
-### Architecture
+- Probabilités de victoire par équipe (phase de groupes → finale)
+- Classements de groupe en direct + calendrier des prochains matchs
+- Fiche détaillée par équipe (effectif, stats, comparaison au sein du groupe)
+- Bouton de mise à jour qui relance la simulation après chaque match
 
-1. **Score prediction** : XGBoost/LightGBM qui prédit les buts de chaque équipe par match
-2. **Monte Carlo simulation** : 10 000 simulations de la compétition complète
+## Limites connues
 
-### Features principales
-
-**Au niveau équipe :**
-- xG moyen pour/contre par 90 min
-- Pressing intensity (nb pressures/90)
-- Passes progressives moyennes
-- Age moyen du squad + expérience (caps moyens)
-- Ranking FIFA (ecart entre les deux équipes)
-
-**Au niveau match :**
-- H2H sur les 5 derniers matchs
-- Forme récente (W/D/L 10 derniers matchs)
-- Jours de repos depuis dernier match
-- Phase de la compétition
-
-### Données d'entraînement
-
-- WC 2010, 2014, 2018, 2022 (phase de groupes + élimination directe)
-- Matchs internationaux A (2018-2026)
-
-## 📈 Dashboard
-
-- **Vue Groupes** : classements en temps réel + prédictions des matchs à venir
-- **Bracket éliminatoire** : arbre interactif avec probabilités par équipe
-- **Fiche équipe** : stats agrégées + meilleurs joueurs
-- **Proba de victoire finale** : top 10 avec graphique
-
-## 🏅 Résultats WC2026 (en cours)
-
-| Date | Groupe | Match | Score |
-|------|--------|-------|-------|
-| 11/06 | A | 🇲🇽 Mexique vs Afrique du Sud 🇿🇦 | **2-0** |
-| 11/06 | A | 🇰🇷 Corée du Sud vs Tchéquie 🇨🇿 | **2-1** |
-
-## 📝 License
-
-MIT
+Pas de prise en compte des blessures, du contexte psychologique, ou de données physiques avancées (non disponibles publiquement). Le modèle reste probabiliste — l'objectif n'est pas de prédire un résultat certain mais de donner une estimation raisonnable, à interpréter comme telle.
