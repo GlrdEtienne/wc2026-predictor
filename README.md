@@ -11,38 +11,6 @@ L'idée de base : récupérer les stats des ~1250 joueurs des 48 équipes qualif
 - **martj42/international_results** (GitHub) — historique des résultats internationaux depuis 1872
 - **scores.txt** — fichier texte mis à jour à la main au fil des matchs pour réactualiser les prédictions
 
-## Structure
-
-```
-wc2026-predictor/
-│
-├── src/
-│   ├── collect/              # scripts de collecte
-│   │   ├── collect_squads.py
-│   │   ├── collect_player_stats.py
-│   │   ├── collect_rankings_and_history.py
-│   │   ├── collect_fixtures.py
-│   │   └── update_live.py
-│   │
-│   ├── features/
-│   │   └── build_features.py     # agrégation joueurs → équipes
-│   │
-│   ├── model/
-│   │   ├── train.py               # XGBoost
-│   │   └── simulate.py            # Monte Carlo (vectorisé numpy)
-│   │
-│   └── dashboard/
-│       └── app.py                 # Streamlit
-│
-├── data/
-│   ├── raw/                  # données brutes
-│   └── processed/            # features + résultats de simulation
-│
-├── scores.txt                # résultats à jour manuellement
-├── config.yaml
-├── requirements.txt
-└── start.bat                 # lance tout en un clic (Windows)
-```
 
 ## Installation
 
