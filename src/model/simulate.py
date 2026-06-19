@@ -45,21 +45,29 @@ PLAYED_MATCHES = [
     {"group": "B", "home": "Canada", "away": "Bosnia and Herzegovina", "hg": 1, "ag": 1},  # 2026-06-12
     {"group": "D", "home": "USA", "away": "Paraguay", "hg": 4, "ag": 1},  # 2026-06-13
     {"group": "B", "home": "Qatar", "away": "Switzerland", "hg": 1, "ag": 1},  # 2026-06-13
-    {"group": "E", "home": "Germany", "away": "Curaçao", "hg": 7, "ag": 1},  # 2026-06-14
-    {"group": "D", "home": "Australia", "away": "Turkey", "hg": 2, "ag": 0},  # 2026-06-14
-    {"group": "F", "home": "Netherlands", "away": "Japan", "hg": 2, "ag": 2},  # 2026-06-14
     {"group": "C", "home": "Brasil", "away": "Morocco", "hg": 1, "ag": 1},  # 2026-06-14
     {"group": "C", "home": "Haiti", "away": "Scotland", "hg": 0, "ag": 1},  # 2026-06-14
-    {"group": "E", "home": "Ivory Coast", "away": "Ecuador", "hg": 1, "ag": 0},  # 2026-06-15
-    {"group": "F", "home": "Sweden", "away": "Tunisia", "hg": 5, "ag": 1},  # 2026-06-15
+    {"group": "D", "home": "Australia", "away": "Turkey", "hg": 2, "ag": 0},  # 2026-06-14
+    {"group": "E", "home": "Germany", "away": "Curaçao", "hg": 7, "ag": 1},  # 2026-06-14
+    {"group": "F", "home": "Netherlands", "away": "Japan", "hg": 2, "ag": 2},  # 2026-06-14
     {"group": "H", "home": "Spain", "away": "Cape Verde", "hg": 0, "ag": 0},  # 2026-06-15
     {"group": "H", "home": "Belgium", "away": "Egypt", "hg": 1, "ag": 1},  # 2026-06-15
+    {"group": "E", "home": "Ivory Coast", "away": "Ecuador", "hg": 1, "ag": 0},  # 2026-06-15
+    {"group": "F", "home": "Sweden", "away": "Tunisia", "hg": 5, "ag": 1},  # 2026-06-15
     {"group": "H", "home": "Saudi Arabia", "away": "Uruguay", "hg": 1, "ag": 1},  # 2026-06-16
     {"group": "G", "home": "Iran", "away": "New Zealand", "hg": 2, "ag": 2},  # 2026-06-16
     {"group": "I", "home": "France", "away": "Senegal", "hg": 3, "ag": 1},  # 2026-06-16
-    {"group": "J", "home": "Argentina", "away": "Algeria", "hg": 3, "ag": 0},  # 2026-06-17
     {"group": "I", "home": "Irak", "away": "Norway", "hg": 1, "ag": 4},  # 2026-06-17
+    {"group": "J", "home": "Argentina", "away": "Algeria", "hg": 3, "ag": 0},  # 2026-06-17
     {"group": "J", "home": "Austria", "away": "Jordan", "hg": 3, "ag": 1},  # 2026-06-17
+    {"group": "K", "home": "Portugal", "away": "DR Congo", "hg": 1, "ag": 1},  # 2026-06-17
+    {"group": "L", "home": "England", "away": "Croatia", "hg": 4, "ag": 2},  # 2026-06-17
+    {"group": "L", "home": "Ghana", "away": "Panama", "hg": 1, "ag": 0},  # 2026-06-18
+    {"group": "K", "home": "Uzbekistan", "away": "Colombia", "hg": 1, "ag": 3},  # 2026-06-18
+    {"group": "A", "home": "Czech Republic", "away": "South Africa", "hg": 1, "ag": 1},  # 2026-06-18
+    {"group": "B", "home": "Switzerland", "away": "Bosnia and Herzegovina", "hg": 4, "ag": 1},  # 2026-06-18
+    {"group": "B", "home": "Canada", "away": "Qatar", "hg": 6, "ag": 0},  # 2026-06-19
+    {"group": "A", "home": "Mexico", "away": "South Korea", "hg": 1, "ag": 0},  # 2026-06-19
 ]
 
 
