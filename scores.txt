@@ -29,4 +29,16 @@
 2026-06-18 | A | Czech Republic | South Africa | 1-1
 2026-06-18 | B | Switzerland | Bosnia and Herzegovina | 4-1
 2026-06-19 | B | Canada | Qatar | 6-0
-2026-06-19 | A | Mexico | South Korea | 1-0 
+2026-06-19 | A | Mexico | South Korea | 1-0
+2026-06-19 | D | USA | Australia | 2-0
+2026-06-20 | C | Scotland | Morocco | 0-1 
+2026-06-20 | C | Brasil | Haiti | 3-0 
+2026-06-20 | D | Turkey | Paraguay | 0-1 
+2026-06-20 | F | Netherlands | Sweden | 5-1 
+2026-06-20 | E | Germany | Ivory Coast | 2-1
+2026-06-21 | E | Ecuador | Curaçao | 0-0  
+2026-06-21 | F | Tunisia | Japan | 0-4
+2026-06-21 | H | Spain | Saudi Arabia | 4-0
+2026-06-21 | G | Belgium | Iran | 0-0
+2026-06-22 | H | Uruguay | Cape Verde | 2-2
+2026-06-22 | G | New Zealand | Egypt | 1-3
