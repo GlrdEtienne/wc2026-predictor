@@ -108,7 +108,12 @@ FLAG_MAP = {
     "Australia": "🇦🇺",
 }
 
-LIVE_NAME_MAP = {"USA": "United States", "Brasil": "Brazil"}
+LIVE_NAME_MAP = {
+    "USA": "United States",
+    "Brasil": "Brazil",
+    "Irak": "Iraq",
+    "Curaçao": "Curacao",
+}
 TEAM_TO_GROUP = {t: g for g, teams in WC2026_GROUPS.items() for t in teams}
 
 
@@ -301,13 +306,6 @@ with tab1:
             st.markdown(f"{medal} **{flag(row['team'])} {row['team']}** — `{pct:.1f}%`")
             st.progress(min(float(row["prob_winner"]) * 10, 1.0))
 
-    st.subheader("Tableau complet des probabilites")
-    display_df = sim.copy()
-    display_df["team"] = display_df["team"].apply(lambda t: f"{flag(t)} {t}")
-    for col in ["prob_winner","prob_final","prob_sf","prob_qf","prob_r32","prob_qualify"]:
-        display_df[col] = display_df[col].apply(lambda x: f"{x*100:.1f}%")
-    display_df.columns = ["Equipe","Groupe","Vainqueur","Finale","1/2 Finale","1/4 Finale","R32","Phase de groupes"]
-    st.dataframe(display_df, use_container_width=True, height=420)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -397,11 +395,11 @@ with tab2:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab3:
     st.subheader("Phase de groupes — classements & probabilites")
-    group_cols = st.columns(3)
+    group_cols = st.columns(2)
 
     for i, (group_name, teams) in enumerate(WC2026_GROUPS.items()):
         gc = GROUP_COLORS.get(group_name, "#4a9eff")
-        with group_cols[i % 3]:
+        with group_cols[i % 2]:
             st.markdown(
                 f'<span style="background:{gc}22;color:{gc};border:1px solid {gc}44;'
                 f'font-size:0.72em;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;'
@@ -410,9 +408,17 @@ with tab3:
                 unsafe_allow_html=True,
             )
             standings = compute_standings(teams, live)
-            col_cfg = {k: st.column_config.NumberColumn(width="small")
-                       for k in ["J","G","N","P","BP","BC","+/-","Pts"]}
-            col_cfg["Equipe"] = st.column_config.TextColumn(width="medium")
+            col_cfg = {
+                "Equipe": st.column_config.TextColumn("Equipe", width="medium"),
+                "J":   st.column_config.NumberColumn("J",   help="Matchs joués",            width="small"),
+                "G":   st.column_config.NumberColumn("G",   help="Victoires",                width="small"),
+                "N":   st.column_config.NumberColumn("N",   help="Matchs nuls",              width="small"),
+                "P":   st.column_config.NumberColumn("P",   help="Défaites",                 width="small"),
+                "BP":  st.column_config.NumberColumn("BP",  help="Buts pour (marqués)",      width="small"),
+                "BC":  st.column_config.NumberColumn("BC",  help="Buts contre (encaissés)",  width="small"),
+                "+/-": st.column_config.NumberColumn("+/-", help="Différence de buts",       width="small"),
+                "Pts": st.column_config.NumberColumn("Pts", help="Points",                   width="small"),
+            }
             st.dataframe(standings, column_config=col_cfg, use_container_width=True,
                          hide_index=True, height=178)
 
@@ -439,9 +445,11 @@ with tab3:
 # ══════════════════════════════════════════════════════════════════════════════
 with tab4:
     st.subheader("Stats equipes WC2026")
+    _all_teams = sorted([t for g in WC2026_GROUPS.values() for t in g])
     selected_team = st.selectbox(
         "Selectionne une equipe",
-        sorted([t for g in WC2026_GROUPS.values() for t in g]),
+        _all_teams,
+        index=_all_teams.index("France"),
         format_func=lambda t: f"{flag(t)} {t}",
     )
 
@@ -526,7 +534,8 @@ with tab4:
     # Effectif
     st.markdown("#### Effectif")
     squad = squads[squads["team"] == selected_team][["number","position","name","club","caps","age_at_wc"]]
-    st.dataframe(squad.reset_index(drop=True), use_container_width=True, height=300)
+    squad_display = squad.reset_index(drop=True)
+    st.dataframe(squad_display, use_container_width=True, height=len(squad_display) * 35 + 38)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
